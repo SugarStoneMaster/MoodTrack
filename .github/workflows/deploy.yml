@@ -62,4 +62,4 @@ jobs:
           api=${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-api:${{ github.sha }} \
           -n moodtrack
         kubectl rollout status deployment/moodtrack-api \
-          -n moodtrack --timeout=120s
+          -n moodtrack --timeout=500s
