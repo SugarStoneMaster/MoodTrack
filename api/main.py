@@ -4,4 +4,4 @@ app = FastAPI()
 
 @app.get("/health")
 def health():
-    return "OK"
+    return "OK_DINUOVO"
