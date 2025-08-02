@@ -69,7 +69,7 @@ jobs:
       - name: Smoke test /health
         run: |
           echo "Testing /health..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$(kubectl get svc ingress-controller -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/health)
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$(kubectl get svc moodtrack-api-svc -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/health)
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ /health returned $HTTP_STATUS"
             exit 1
@@ -89,7 +89,7 @@ jobs:
           echo "Testing /protected endpoint..."
           HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
-            http://$(kubectl get svc ingress-controller -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/protected)
+            http://$(kubectl get svc moodtrack-api-svc -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/protected)
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ /protected returned $HTTP_STATUS"
             exit 1
