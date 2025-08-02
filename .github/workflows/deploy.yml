@@ -15,6 +15,12 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-api:${{ github.sha }}
+      RESOURCE_GROUP: rg-moodtrack-dev
+      CLUSTER_NAME: aks-moodtrack-dev
+      NAMESPACE: moodtrack
+      SERVICE_NAME: moodtrack-api-svc
+      TENANT: ${{ secrets.B2C_TENANT }}
+      CLIENT_ID_API: ${{ secrets.TENANT_CLIENT_API_ID }}
 
     steps:
       - name: Checkout code
@@ -39,21 +45,31 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Start AKS cluster if stopped
+      - name: Ensure AKS cluster is running
         run: |
-          az aks start \
-            --resource-group rg-moodtrack-dev \
-            --name aks-moodtrack-dev
-          az aks wait \
-            --resource-group rg-moodtrack-dev \
-            --name aks-moodtrack-dev \
-            --created
+          POWER_STATE=$(az aks show \
+            --resource-group $RESOURCE_GROUP \
+            --name $CLUSTER_NAME \
+            --query powerState.code -o tsv)
+          echo "AKS powerState: $POWER_STATE"
+          if [[ "$POWER_STATE" == "Stopped"* ]]; then
+            echo "Starting AKS cluster..."
+            az aks start \
+              --resource-group $RESOURCE_GROUP \
+              --name $CLUSTER_NAME
+            az aks wait \
+              --resource-group $RESOURCE_GROUP \
+              --name $CLUSTER_NAME \
+              --created
+          else
+            echo "Cluster already running, skipping start."
+          fi
 
       - name: Set AKS context
         uses: azure/aks-set-context@v3
         with:
-          resource-group:       rg-moodtrack-dev
-          cluster-name:         aks-moodtrack-dev
+          resource-group:       ${{ env.RESOURCE_GROUP }}
+          cluster-name:         ${{ env.CLUSTER_NAME }}
           subscription-id:      ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           use-admin-credentials: true
 
@@ -61,15 +77,17 @@ jobs:
         run: |
           kubectl set image deployment/moodtrack-api \
             api=$IMAGE \
-            -n moodtrack
+            -n $NAMESPACE
           kubectl rollout status deployment/moodtrack-api \
-            -n moodtrack --timeout=500s
+            -n $NAMESPACE --timeout=500s
 
       # --- smoke tests ---
       - name: Smoke test /health
         run: |
           echo "Testing /health..."
-          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$(kubectl get svc moodtrack-api-svc -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/health)
+          LB_IP=$(kubectl get svc $SERVICE_NAME -n $NAMESPACE \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$LB_IP/health)
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ /health returned $HTTP_STATUS"
             exit 1
@@ -77,19 +95,18 @@ jobs:
           echo "✅ /health OK"
 
       - name: Smoke test /protected
-        env:
-          AZURE_TENANT: ${{ secrets.B2C_TENANT }}
-          AZURE_CLIENT_ID: ${{ secrets.TENANT_CLIENT_API_ID }}
         run: |
           echo "Fetching B2C token via Azure CLI..."
           TOKEN=$(az account get-access-token \
-            --tenant $AZURE_TENANT \
-            --scope api://$AZURE_CLIENT_ID/.default \
+            --tenant $TENANT \
+            --scope api://$CLIENT_ID_API/.default \
             --query accessToken -o tsv)
           echo "Testing /protected endpoint..."
+          LB_IP=$(kubectl get svc $SERVICE_NAME -n $NAMESPACE \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
           HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
             -H "Authorization: Bearer $TOKEN" \
-            http://$(kubectl get svc moodtrack-api-svc -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/protected)
+            http://$LB_IP/protected)
           if [ "$HTTP_STATUS" != "200" ]; then
             echo "❌ /protected returned $HTTP_STATUS"
             exit 1
