@@ -1,52 +1,51 @@
-import os, httpx, jwt
+# api/auth.py
 from fastapi import Depends, HTTPException, status
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jwt import PyJWKClient
-from dotenv import load_dotenv
+from fastapi.security import OAuth2PasswordBearer, SecurityScopes
+from jose import JWTError, jwt
+from typing import List
+from .users import SECRET_KEY, ALGORITHM
 
-load_dotenv()
-
-OIDC_URL   = os.getenv("B2C_OPENID_CONFIG_URL")
-AUDIENCE   = os.getenv("B2C_AUDIENCE")
-ISSUER     = os.getenv("B2C_ISSUER")
-
-_security  = HTTPBearer()
-_jwks      = None
-_iss_cache = None
-
-async def _init():
-    global _jwks, _iss_cache
-    async with httpx.AsyncClient() as c:
-        meta = (await c.get(OIDC_URL, timeout=10)).json()
-    _jwks      = PyJWKClient(meta["jwks_uri"])
-    _iss_cache = ISSUER or meta["issuer"]
+oauth2 = OAuth2PasswordBearer(
+    tokenUrl="token",
+    scopes={
+        "entries:read": "Leggi le voci del diario",
+        "entries:write": "Crea nuove voci"
+    }
+)
 
 async def get_current_user(
-    cred: HTTPAuthorizationCredentials = Depends(_security)
+    security_scopes: SecurityScopes,
+    token: str = Depends(oauth2)
 ):
-    if _jwks is None:
-        await _init()
-
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token non valido o scaduto",
+        headers={"WWW-Authenticate": f'Bearer scope="{security_scopes.scope_str}"'}
+    )
     try:
-        token = cred.credentials
-        key   = _jwks.get_signing_key_from_jwt(token).key
-        payload = jwt.decode(
-            token,
-            key=key,
-            algorithms=["RS256"],
-            audience=AUDIENCE,
-            issuer=_iss_cache,
-            options={"verify_exp": True},
-        )
-    except Exception as ex:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=str(ex))
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get("sub")
+        token_scopes: List[str] = payload.get("scopes", [])
+        if username is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    for scope in security_scopes.scopes:
+        if scope not in token_scopes:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Scope insufficiente",
+                headers={"WWW-Authenticate": f'Bearer scope="{security_scopes.scope_str}"'}
+            )
+    return {"username": username, "scopes": token_scopes}
 
-    scopes = set((payload.get("scp") or "").split())
-    return {"sub": payload.get("sub"), "scopes": scopes}
 
 def require_scope(scope: str):
-    def _dep(user = Depends(get_current_user)):
+    def dep(user = Depends(get_current_user)):
+        # raise if missing
         if scope not in user["scopes"]:
-            raise HTTPException(status_code=403, detail="insufficient_scope")
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="insufficient_scope")
         return user
-    return _dep
+    return dep
+
+
