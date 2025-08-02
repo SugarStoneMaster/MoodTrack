@@ -1,4 +1,4 @@
-name: Build & Deploy to AKS
+name: Build, Deploy & Smoke Test
 
 on:
   push:
@@ -6,8 +6,8 @@ on:
 
 permissions:
   contents: read
-  id-token: write            # necessario per OIDC (se lo usi)
-  packages: write            # per Docker login
+  id-token: write
+  packages: write
   actions: read
 
 jobs:
@@ -15,8 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       IMAGE: ${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-api:${{ github.sha }}
-    steps:
 
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -39,6 +39,16 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
+      - name: Start AKS cluster if stopped
+        run: |
+          az aks start \
+            --resource-group rg-moodtrack-dev \
+            --name aks-moodtrack-dev
+          az aks wait \
+            --resource-group rg-moodtrack-dev \
+            --name aks-moodtrack-dev \
+            --created
+
       - name: Set AKS context
         uses: azure/aks-set-context@v3
         with:
@@ -54,3 +64,34 @@ jobs:
             -n moodtrack
           kubectl rollout status deployment/moodtrack-api \
             -n moodtrack --timeout=500s
+
+      # --- smoke tests ---
+      - name: Smoke test /health
+        run: |
+          echo "Testing /health..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$(kubectl get svc ingress-controller -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/health)
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ /health returned $HTTP_STATUS"
+            exit 1
+          fi
+          echo "✅ /health OK"
+
+      - name: Smoke test /protected
+        env:
+          AZURE_TENANT: ${{ secrets.B2C_TENANT }}
+          AZURE_CLIENT_ID: ${{ secrets.TENANT_CLIENT_API_ID }}
+        run: |
+          echo "Fetching B2C token via Azure CLI..."
+          TOKEN=$(az account get-access-token \
+            --tenant $AZURE_TENANT \
+            --scope api://$AZURE_CLIENT_ID/.default \
+            --query accessToken -o tsv)
+          echo "Testing /protected endpoint..."
+          HTTP_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer $TOKEN" \
+            http://$(kubectl get svc ingress-controller -n moodtrack -o jsonpath='{.status.loadBalancer.ingress[0].ip}')/protected)
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ /protected returned $HTTP_STATUS"
+            exit 1
+          fi
+          echo "✅ /protected OK"
