@@ -14,11 +14,11 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     env:
-      IMAGE: ${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-api:${{ github.sha }}
+      IMAGE: ${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-app:${{ github.sha }}
       RESOURCE_GROUP: rg-moodtrack-dev
       CLUSTER_NAME: aks-moodtrack-dev
       NAMESPACE: moodtrack
-      SERVICE_NAME: moodtrack-api-svc
+      SERVICE_NAME: moodtrack-app-svc
       TEST_USER:  alice                     # di prova
       TEST_PASS:  wonderland
 
