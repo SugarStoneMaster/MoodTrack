@@ -29,7 +29,7 @@ spec:
                   key: SECRET_KEY
             - name: ALGORITHM
               value: "HS256"
-            - name: SQLALCHEMY_DATABASE_URL
+            - name: SQL_URL
               valueFrom:
                 secretKeyRef:
                   name: sql-conn          # già creato con la stringa di connessione
