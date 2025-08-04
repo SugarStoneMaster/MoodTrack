@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: moodtrack-api
+  namespace: moodtrack
+  labels:
+    app: moodtrack-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: moodtrack-api
+  template:
+    metadata:
+      labels:
+        app: moodtrack-api
+    spec:
+      containers:
+        - name: moodtrack-api
+          image: IMAGE_PLACEHOLDER           # verrà sostituito in CI/CD con: ${ACR_LOGIN_SERVER}/moodtrack-api:${GITHUB_SHA}
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+          env:
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: api-secrets      # crea questo Secret contenente SECRET_KEY e altri segreti
+                  key: SECRET_KEY
+            - name: ALGORITHM
+              value: "HS256"
+            - name: SQLALCHEMY_DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: sql-conn          # già creato con la stringa di connessione
+                  key: url

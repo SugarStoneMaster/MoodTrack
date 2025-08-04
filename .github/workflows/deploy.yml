@@ -14,88 +14,92 @@ jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
     env:
-      IMAGE: ${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-app:${{ github.sha }}
+      IMAGE:          ${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-api:${{ github.sha }}
       RESOURCE_GROUP: rg-moodtrack-dev
-      CLUSTER_NAME: aks-moodtrack-dev
-      NAMESPACE: moodtrack
-      SERVICE_NAME: moodtrack-app-svc
-      TEST_USER: alice
-      TEST_PASS: wonderland
+      CLUSTER_NAME:   aks-moodtrack-dev
+      NAMESPACE:      moodtrack
+      SERVICE_NAME:   moodtrack-api-svc
+      TEST_USER:      alice           # utente di prova
+      TEST_PASS:      wonderland
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+    # 1) checkout
+    - uses: actions/checkout@v4
 
-      - name: Build & Push image
-        run: |
-          docker build -t $IMAGE .
-          echo ${{ secrets.ACR_PASSWORD }} | \
-            docker login ${{ secrets.ACR_LOGIN_SERVER }} -u ${{ secrets.ACR_USERNAME }} --password-stdin
-          docker push $IMAGE
+    # 2) build & push
+    - name: Build & push image
+      run: |
+        docker build -t "$IMAGE" .
+        echo "${{ secrets.ACR_PASSWORD }}" | \
+          docker login ${{ secrets.ACR_LOGIN_SERVER }} \
+            -u ${{ secrets.ACR_USERNAME }} --password-stdin
+        docker push "$IMAGE"
 
-      - name: Azure login (cluster)
-        uses: azure/login@v2
-        with:
-          creds: ${{ secrets.AZURE_CREDENTIALS }}
+    # 3) login su Azure
+    - uses: azure/login@v2
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure AKS is running
-        run: |
-          STATE=$(az aks show -g $RESOURCE_GROUP -n $CLUSTER_NAME --query powerState.code -o tsv)
-          if [[ "$STATE" == "Stopped"* ]]; then
-            az aks start -g $RESOURCE_GROUP -n $CLUSTER_NAME
-            az aks wait  -g $RESOURCE_GROUP -n $CLUSTER_NAME --created
-          else
-            echo "AKS already running, skipping start."
-          fi
+    # 4) se il cluster è “Stopped” lo avvio
+    - name: Ensure AKS running
+      run: |
+        STATE=$(az aks show -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" \
+                 --query powerState.code -o tsv)
+        if [[ "$STATE" == "Stopped"* ]]; then
+          az aks start -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME"
+          az aks wait  -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --created
+        else
+          echo "AKS already running"
+        fi
 
-      - name: Set kubectl context
-        uses: azure/aks-set-context@v3
-        with:
-          resource-group: ${{ env.RESOURCE_GROUP }}
-          cluster-name:  ${{ env.CLUSTER_NAME }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          use-admin-credentials: true
+    # 5) config kubectl
+    - uses: azure/aks-set-context@v3
+      with:
+        resource-group:    ${{ env.RESOURCE_GROUP }}
+        cluster-name:      ${{ env.CLUSTER_NAME }}
+        subscription-id:   ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        use-admin-credentials: true
 
-      - name: Rollout deployment
-        run: |
-          kubectl set image deployment/moodtrack-api api=$IMAGE -n $NAMESPACE
-          kubectl rollout status deployment/moodtrack-api -n $NAMESPACE --timeout=300s
+    # 6) deploy (sostituisce l’immagine nel manifest → apply → rollout)
+    - name: Deploy to AKS
+      run: |
+        sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}|g" infra/deployment.yaml
+        kubectl apply -f infra/deployment.yaml -n "$NAMESPACE"
+        kubectl rollout status deployment/moodtrack-api \
+          -n "$NAMESPACE" --timeout=300s
 
-      # --- smoke tests ---
-      - name: Smoke test /health
-        run: |
-          LB=$(kubectl get svc $SERVICE_NAME -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          STATUS=$(curl -s -o /dev/null -w '%{http_code}' http://$LB/health)
-          [ "$STATUS" = "200" ] || { echo "/health -> $STATUS"; exit 1; }
-          echo "/health OK"
+    # 7) smoke tests in un’unica shell (token + POST + GET)
+    - name: Smoke tests
+      run: |
+        LB=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" \
+               -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
-      - name: Smoke test token retrieval
-        run: |
-          LB=$(kubectl get svc $SERVICE_NAME -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          TOKEN=$(curl -s -X POST http://$LB/token \
-            -H "Content-Type: application/x-www-form-urlencoded" \
-            -d "username=$TEST_USER&password=$TEST_PASS" | jq -r .access_token)
-          if [ -z "$TOKEN" ] || [ "$TOKEN" = "null" ]; then
-            echo "❌ Failed to obtain JWT token"; exit 1;
-          fi
-          echo "✅ Token OK"
+        echo "→ /health"
+        curl -sf http://"$LB"/health >/dev/null \
+          || { echo "❌ /health KO"; exit 1; }
+        echo "✅ /health OK"
 
-      - name: Smoke test create entry (POST /entries)
-        run: |
-          LB=$(kubectl get svc $SERVICE_NAME -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          POST_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://$LB/entries \
-            -H "Authorization: Bearer $TOKEN" \
-            -H "Content-Type: application/json" \
-            -d '{"content":"smoke test entry","mood":5}')
-          [ "$POST_STATUS" = "201" ] || { echo "❌ POST /entries -> $POST_STATUS"; exit 1; }
-          echo "✅ POST /entries OK"
+        echo "→ obtain JWT"
+        TOKEN=$(curl -s -X POST http://"$LB"/token \
+          -H "Content-Type: application/x-www-form-urlencoded" \
+          -d "username=$TEST_USER&password=$TEST_PASS" | jq -r .access_token)
+        [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] \
+          || { echo "❌ token retrieval failed"; exit 1; }
+        echo "✅ token OK"
 
-      - name: Smoke test list entries (GET /entries)
-        run: |
-          LB=$(kubectl get svc $SERVICE_NAME -n $NAMESPACE -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-          RESP=$(curl -s -H "Authorization: Bearer $TOKEN" http://$LB/entries)
-          COUNT=$(echo "$RESP" | jq 'length')
-          if [ "$COUNT" -lt 1 ]; then
-            echo "❌ GET /entries -> no entries in response"; exit 1;
-          fi
-          echo "✅ GET /entries OK ($COUNT entries)"
+        echo "→ POST /entries"
+        POST_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+          -X POST http://"$LB"/entries \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"content":"smoke test entry","mood":5}')
+        [ "$POST_STATUS" = "201" ] \
+          || { echo "❌ POST /entries -> $POST_STATUS"; exit 1; }
+        echo "✅ POST /entries OK"
+
+        echo "→ GET /entries"
+        COUNT=$(curl -s -H "Authorization: Bearer $TOKEN" \
+          http://"$LB"/entries | jq 'length')
+        [ "$COUNT" -ge 1 ] \
+          || { echo "❌ GET /entries empty"; exit 1; }
+        echo "✅ GET /entries OK ($COUNT entries)"
