@@ -19,11 +19,11 @@ jobs:
       CLUSTER_NAME:   aks-moodtrack-dev
       NAMESPACE:      moodtrack
       SERVICE_NAME:   moodtrack-api-svc
-      TEST_USER:      alice           # utente di prova
+      TEST_USER:      alice
       TEST_PASS:      wonderland
 
     steps:
-    # 1) checkout
+    # 1) codice
     - uses: actions/checkout@v4
 
     # 2) build & push
@@ -35,12 +35,12 @@ jobs:
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
         docker push "$IMAGE"
 
-    # 3) login su Azure
+    # 3) login Azure
     - uses: azure/login@v2
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    # 4) se il cluster è “Stopped” lo avvio
+    # 4) avvio cluster se fermo
     - name: Ensure AKS running
       run: |
         STATE=$(az aks show -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" \
@@ -48,11 +48,9 @@ jobs:
         if [[ "$STATE" == "Stopped"* ]]; then
           az aks start -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME"
           az aks wait  -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --created
-        else
-          echo "AKS already running"
         fi
 
-    # 5) config kubectl
+    # 5) kubectl context
     - uses: azure/aks-set-context@v3
       with:
         resource-group:    ${{ env.RESOURCE_GROUP }}
@@ -60,7 +58,19 @@ jobs:
         subscription-id:   ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         use-admin-credentials: true
 
-    # 6) deploy (sostituisce l’immagine nel manifest → apply → rollout)
+    # 6) (ri)crea i Secret applicativi
+    - name: Apply K8s secrets
+      run: |
+        # api-secrets (JWT)
+        kubectl create secret generic api-secrets -n "$NAMESPACE" \
+          --from-literal=SECRET_KEY='${{ secrets.SECRET_KEY }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+        # sql-url (stringa connessione)
+        kubectl create secret generic sql-url -n "$NAMESPACE" \
+          --from-literal=SQL_URL='${{ secrets.SQL_URL }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+    # 7) deploy (sed + apply + rollout)
     - name: Deploy to AKS
       run: |
         sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}|g" infra/deployment.yaml
@@ -68,38 +78,34 @@ jobs:
         kubectl rollout status deployment/moodtrack-api \
           -n "$NAMESPACE" --timeout=300s
 
-    # 7) smoke tests in un’unica shell (token + POST + GET)
+    # 8) smoke-test
     - name: Smoke tests
       run: |
         LB=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" \
                -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
-        echo "→ /health"
-        curl -sf http://"$LB"/health >/dev/null \
-          || { echo "❌ /health KO"; exit 1; }
+        echo "⌛ waiting /health"
+        for i in {1..12}; do
+          curl -sf http://"$LB"/health && break
+          [[ $i == 12 ]] && { echo "❌ /health KO"; exit 1; }
+          sleep 5
+        done
         echo "✅ /health OK"
 
-        echo "→ obtain JWT"
         TOKEN=$(curl -s -X POST http://"$LB"/token \
           -H "Content-Type: application/x-www-form-urlencoded" \
           -d "username=$TEST_USER&password=$TEST_PASS" | jq -r .access_token)
         [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] \
           || { echo "❌ token retrieval failed"; exit 1; }
-        echo "✅ token OK"
 
-        echo "→ POST /entries"
-        POST_STATUS=$(curl -s -o /dev/null -w '%{http_code}' \
+        POST=$(curl -s -o /dev/null -w '%{http_code}' \
           -X POST http://"$LB"/entries \
           -H "Authorization: Bearer $TOKEN" \
           -H "Content-Type: application/json" \
           -d '{"content":"smoke test entry","mood":5}')
-        [ "$POST_STATUS" = "201" ] \
-          || { echo "❌ POST /entries -> $POST_STATUS"; exit 1; }
-        echo "✅ POST /entries OK"
+        [ "$POST" = "201" ] || { echo "❌ POST /entries -> $POST"; exit 1; }
 
-        echo "→ GET /entries"
-        COUNT=$(curl -s -H "Authorization: Bearer $TOKEN" \
-          http://"$LB"/entries | jq 'length')
-        [ "$COUNT" -ge 1 ] \
-          || { echo "❌ GET /entries empty"; exit 1; }
-        echo "✅ GET /entries OK ($COUNT entries)"
+        LEN=$(curl -s -H "Authorization: Bearer $TOKEN" http://"$LB"/entries | jq 'length')
+        [ "$LEN" -ge 1 ] || { echo "❌ GET /entries empty"; exit 1; }
+
+        echo "✅ Smoke-tests passed (entries: $LEN)"

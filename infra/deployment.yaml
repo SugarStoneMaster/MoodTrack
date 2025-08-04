@@ -17,15 +17,21 @@ spec:
     spec:
       containers:
         - name: moodtrack-api
-          image: IMAGE_PLACEHOLDER           # verrà sostituito in CI/CD con: ${ACR_LOGIN_SERVER}/moodtrack-api:${GITHUB_SHA}
+          image: IMAGE_PLACEHOLDER          # ← il workflow lo sostituisce
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
+          readinessProbe:                  # ── aspetta che /health torni 200
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 3
+            periodSeconds: 5
           env:
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
-                  name: api-secrets      # crea questo Secret contenente SECRET_KEY e altri segreti
+                  name: api-secrets
                   key: SECRET_KEY
             - name: ALGORITHM
               value: "HS256"
