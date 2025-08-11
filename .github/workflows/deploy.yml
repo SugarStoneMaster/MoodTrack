@@ -19,8 +19,8 @@ jobs:
       CLUSTER_NAME:   aks-moodtrack-dev
       NAMESPACE:      moodtrack
       SERVICE_NAME:   moodtrack-api-svc
-      TEST_USER:      alice
-      TEST_PASS:      wonderland
+      TEST_USER:      testuser
+      TEST_PASS:      test123
 
     steps:
     # 1) codice

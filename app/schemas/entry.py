@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from datetime import datetime
 
 class EntryCreate(BaseModel):
@@ -6,6 +6,7 @@ class EntryCreate(BaseModel):
     mood: int | None = Field(default=None, ge=0, le=10)
 
 class EntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)  # ← importante per SQLAlchemy
     id: int
     content: str
     mood: int | None
