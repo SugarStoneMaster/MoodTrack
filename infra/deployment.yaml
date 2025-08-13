@@ -17,17 +17,24 @@ spec:
     spec:
       containers:
         - name: moodtrack-api
-          image: IMAGE_PLACEHOLDER          # ← il workflow lo sostituisce
+          image: IMAGE_PLACEHOLDER
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8080
-          readinessProbe:                  # ── aspetta che /health torni 200
+          readinessProbe:
             httpGet:
               path: /health
               port: 8080
             initialDelaySeconds: 3
             periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 10
           env:
+            # ── Auth/JWT app
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -35,8 +42,26 @@ spec:
                   key: SECRET_KEY
             - name: ALGORITHM
               value: "HS256"
+
+            # ── DB (stringa di connessione SQL)
             - name: SQL_URL
               valueFrom:
                 secretKeyRef:
-                  name: sql-conn          # già creato con la stringa di connessione
+                  name: sql-conn       # Secret esistente
                   key: url
+
+            # ── Queue (enqueue sentiment jobs)
+            - name: AZURE_STORAGE_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: storage-conn   # crea: key=conn
+                  key: conn
+            - name: SENTIMENT_QUEUE
+              value: "sentiment-jobs"
+
+            # ── Chiave interna per /internal/*
+            - name: JOB_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: job-key        # crea: key=key
+                  key: key
