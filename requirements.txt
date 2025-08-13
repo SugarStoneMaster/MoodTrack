@@ -12,3 +12,4 @@ python-multipart==0.0.20
 sqlalchemy
 pyodbc
 azure-storage-queue==12.9.0
+openai

@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
-from api.queueing import enqueue_entry
+from app.api.queueing import enqueue_entry
 from app.core.deps import get_current_user, require_scope
 from app.db import get_db
 from app.db.models import Entry

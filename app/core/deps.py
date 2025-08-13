@@ -8,7 +8,9 @@ oauth2 = OAuth2PasswordBearer(
     tokenUrl="token",
     scopes={
         "entries:read": "Leggi le voci del diario",
-        "entries:write": "Crea nuove voci"
+        "entries:write": "Crea nuove voci",
+        "chatbot:write": "Invia messaggi al chatbot",
+        "chatbot:read": "Legge messaggi dal chatbot",
     }
 )
 
