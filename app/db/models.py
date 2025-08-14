@@ -20,6 +20,7 @@ class User(Base):
     status: Mapped[str] = mapped_column(String(16), default="active")
     created_at: Mapped[DateTime] = mapped_column(DateTime(timezone=False), server_default=func.sysutcdatetime())
     last_login_at: Mapped[DateTime | None] = mapped_column(DateTime(timezone=False))
+    thread_id: Mapped[str | None] = mapped_column(String(64))
 
     entries: Mapped[list["Entry"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     settings: Mapped["UserSettings | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")

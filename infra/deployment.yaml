@@ -34,7 +34,7 @@ spec:
             initialDelaySeconds: 15
             periodSeconds: 10
           env:
-            # ── Auth/JWT app
+            # ── Auth/JWT
             - name: SECRET_KEY
               valueFrom:
                 secretKeyRef:
@@ -43,18 +43,18 @@ spec:
             - name: ALGORITHM
               value: "HS256"
 
-            # ── DB (stringa di connessione SQL)
+            # ── DB
             - name: SQL_URL
               valueFrom:
                 secretKeyRef:
-                  name: sql-conn       # Secret esistente
+                  name: sql-conn
                   key: url
 
-            # ── Queue (enqueue sentiment jobs)
+            # ── Queue (enqueue sentiment)
             - name: AZURE_STORAGE_CONNECTION_STRING
               valueFrom:
                 secretKeyRef:
-                  name: storage-conn   # crea: key=conn
+                  name: storage-conn
                   key: conn
             - name: SENTIMENT_QUEUE
               value: "sentiment-jobs"
@@ -63,5 +63,27 @@ spec:
             - name: JOB_KEY
               valueFrom:
                 secretKeyRef:
-                  name: job-key        # crea: key=key
+                  name: job-key
                   key: key
+
+            # ── Azure OpenAI (Assistant API)
+            - name: AZURE_OPENAI_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: aoai
+                  key: endpoint
+            - name: AZURE_OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: aoai
+                  key: api_key
+            - name: AZURE_OPENAI_API_VERSION
+              valueFrom:
+                secretKeyRef:
+                  name: aoai
+                  key: api_version
+            - name: AZURE_OPENAI_ASSISTANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aoai
+                  key: assistant_id

@@ -26,7 +26,7 @@ jobs:
     # 1) codice
     - uses: actions/checkout@v4
 
-    # 2) build & pushh
+    # 2) build & push
     - name: Build & push image
       run: |
         docker build -t "$IMAGE" .
@@ -43,8 +43,7 @@ jobs:
     # 4) avvio cluster se fermo
     - name: Ensure AKS running
       run: |
-        STATE=$(az aks show -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" \
-                 --query powerState.code -o tsv)
+        STATE=$(az aks show -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --query powerState.code -o tsv)
         if [[ "$STATE" == "Stopped"* ]]; then
           az aks start -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME"
           az aks wait  -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --created
@@ -61,28 +60,43 @@ jobs:
     # 6) (ri)crea i Secret applicativi
     - name: Apply K8s secrets
       run: |
-        # api-secrets (JWT)
+        # --- JWT (SECRET_KEY + ALGORITHM) ---
         kubectl create secret generic api-secrets -n "$NAMESPACE" \
           --from-literal=SECRET_KEY='${{ secrets.SECRET_KEY }}' \
+          --from-literal=ALGORITHM='${{ secrets.ALGORITHM }}' \
           --dry-run=client -o yaml | kubectl apply -f -
-        # sql-url (stringa connessione)
-        kubectl create secret generic sql-url -n "$NAMESPACE" \
-          --from-literal=SQL_URL='${{ secrets.SQL_URL }}' \
+
+        # --- SQL connection string (manifest: secret sql-conn / key url) ---
+        kubectl create secret generic sql-conn -n "$NAMESPACE" \
+          --from-literal=url='${{ secrets.SQL_URL }}' \
           --dry-run=client -o yaml | kubectl apply -f -
+
+        # --- JOB KEY per endpoint /internal/* ---
+        kubectl create secret generic job-key -n "$NAMESPACE" \
+          --from-literal=key='${{ secrets.JOB_KEY }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+        # --- Azure OpenAI (Assistant) ---
+        kubectl create secret generic aoai -n "$NAMESPACE" \
+          --from-literal=endpoint='${{ secrets.AZURE_OPENAI_ENDPOINT }}' \
+          --from-literal=api_key='${{ secrets.AZURE_OPENAI_API_KEY }}' \
+          --from-literal=api_version='${{ secrets.AZURE_OPENAI_API_VERSION }}' \
+          --from-literal=assistant_id='${{ secrets.AZURE_OPENAI_ASSISTANT_ID }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+
+        fi
 
     # 7) deploy (sed + apply + rollout)
     - name: Deploy to AKS
       run: |
         sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}|g" infra/deployment.yaml
         kubectl apply -f infra/deployment.yaml -n "$NAMESPACE"
-        kubectl rollout status deployment/moodtrack-api \
-          -n "$NAMESPACE" --timeout=300s
+        kubectl rollout status deployment/moodtrack-api -n "$NAMESPACE" --timeout=300s
 
-    # 8) smoke-test
+    # 8) smoke-test API + chatbot
     - name: Smoke tests
       run: |
-        LB=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" \
-               -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        LB=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
 
         echo "⌛ waiting /health"
         for i in {1..12}; do
@@ -92,20 +106,38 @@ jobs:
         done
         echo "✅ /health OK"
 
+        echo "→ obtain JWT"
         TOKEN=$(curl -s -X POST http://"$LB"/token \
           -H "Content-Type: application/x-www-form-urlencoded" \
           -d "username=$TEST_USER&password=$TEST_PASS" | jq -r .access_token)
-        [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] \
-          || { echo "❌ token retrieval failed"; exit 1; }
+        [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { echo "❌ token retrieval failed"; exit 1; }
+        echo "✅ token OK"
 
+        echo "→ POST /entries"
         POST=$(curl -s -o /dev/null -w '%{http_code}' \
           -X POST http://"$LB"/entries \
           -H "Authorization: Bearer $TOKEN" \
           -H "Content-Type: application/json" \
           -d '{"content":"smoke test entry","mood":5}')
         [ "$POST" = "201" ] || { echo "❌ POST /entries -> $POST"; exit 1; }
+        echo "✅ POST /entries OK"
 
+        echo "→ GET /entries"
         LEN=$(curl -s -H "Authorization: Bearer $TOKEN" http://"$LB"/entries | jq 'length')
         [ "$LEN" -ge 1 ] || { echo "❌ GET /entries empty"; exit 1; }
+        echo "✅ GET /entries OK ($LEN entries)"
 
-        echo "✅ Smoke-tests passed (entries: $LEN)"
+        echo "→ Chatbot /chatbot/send_message"
+        CODE=$(curl -s -o /tmp/chat.json -w '%{http_code}' \
+          -X POST http://"$LB"/chatbot/send_message \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d '{"message":"Ciao, dammi un breve spunto di journaling per oggi."}')
+        [ "$CODE" = "200" ] || { echo "❌ /chatbot/send_message -> $CODE"; cat /tmp/chat.json; exit 1; }
+
+        THREAD_ID=$(jq -r '.thread_id' /tmp/chat.json)
+        REPLY=$(jq -r '.reply' /tmp/chat.json)
+
+        [ -n "$THREAD_ID" ] && [ "$THREAD_ID" != "null" ] || { echo "❌ thread_id mancante"; cat /tmp/chat.json; exit 1; }
+        [ -n "$REPLY" ] && [ "$REPLY" != "null" ] || { echo "❌ reply mancante"; cat /tmp/chat.json; exit 1; }
+        echo "✅ Chatbot OK (thread_id: $THREAD_ID)"

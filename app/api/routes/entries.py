@@ -21,7 +21,7 @@ def create_entry(body: EntryCreate, user=Depends(get_current_user), db: Session 
         mood=body.mood,
     )
     db.add(e); db.commit(); db.refresh(e)
-    enqueue_entry(e.id)
+    #enqueue_entry(e.id)
     return e
 
 @router.get(
