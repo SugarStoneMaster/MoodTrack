@@ -84,12 +84,10 @@ jobs:
           --from-literal=assistant_id='${{ secrets.AZURE_OPENAI_ASSISTANT_ID }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # (opzionale) se usi la coda: storage-conn
-        if [[ -n "${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}" ]]; then
-          kubectl create secret generic storage-conn -n "$NAMESPACE" \
-            --from-literal=conn='${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}' \
-            --dry-run=client -o yaml | kubectl apply -f -
-        fi
+        # --- Storage connection for sentiment-jobs queue ---
+        kubectl create secret generic storage-conn -n "$NAMESPACE" \
+          --from-literal=conn='${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
 
     # 7) deploy (sed + apply + rollout)
     - name: Deploy to AKS
