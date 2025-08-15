@@ -53,6 +53,20 @@ frontend/expo-debug.log
 frontend/.expo/
 frontend/.expo-shared/
 
+# Expo / RN
+frontend/node_modules/
+frontend/.expo/
+frontend/.expo-shared/
+frontend/.yarn/
+frontend/dist/
+frontend/web-build/
+frontend/coverage/
+frontend/.jest/
+
+# iOS/Android (se mai fai prebuild locale)
+frontend/ios/
+frontend/android/
+
 # --- COMMON ---
 # OS-generated files
 .DS_Store
