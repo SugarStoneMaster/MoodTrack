@@ -21,30 +21,35 @@ htmlcov/
 dist/
 build/
 
-# --- REACT NATIVE ---
+# --- REACT NATIVE (monorepo) ---
+# iOS Pods
+frontend/ios/Pods/
+frontend/ios/Podfile.lock
+
 # Node modules
-node_modules/
-# Build artifacts
-ios/build/
-ios/Pods/
-android/.gradle/
-android/app/build/
-# Bundle
+frontend/node_modules/
+
+# Android/iOS build artifacts
+frontend/ios/build/
+frontend/android/.gradle/
+frontend/android/app/build/
+
+# Bundles
 *.bundle
-# Metro cache
-.metro-cache/
-# Watchman
-.watchmanconfig
-# Misc RN
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-package-lock.json
-yarn.lock
-# React Native config
-.expo/
-.expo-shared/
-expo-debug.log
+
+# Metro & Watchman
+frontend/.metro-cache/
+frontend/.watchmanconfig
+
+# Misc RN logs
+frontend/npm-debug.log*
+frontend/yarn-debug.log*
+frontend/yarn-error.log*
+frontend/expo-debug.log
+
+# Expo
+frontend/.expo/
+frontend/.expo-shared/
 
 # --- COMMON ---
 # OS-generated files
@@ -52,6 +57,7 @@ expo-debug.log
 Thumbs.db
 ehthumbs.db
 Icon?
+
 # IDE/editor config
 .vscode/
 .idea/
