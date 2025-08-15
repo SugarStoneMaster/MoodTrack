@@ -1,7 +1,16 @@
 # app/api/routes/chatbot.py
+import asyncio
+import json
 import os
-from fastapi import APIRouter, Depends, HTTPException, status
+import threading
+import time
+
+import openai
+from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi.responses import StreamingResponse
+
 from sqlalchemy.orm import Session
+from uvicorn import logging
 
 from app.schemas.chatbot import ChatbotMessageIn, ChatbotResponse
 from app.core.deps import get_current_user, require_scope
@@ -11,8 +20,8 @@ from app.api.assistant import (
     assistant_id,
     create_thread,
     add_user_message,
-    run_and_wait,
     get_last_assistant_message,
+    run,
 )
 
 router = APIRouter(tags=["chatbot"], prefix="/chatbot")
@@ -25,20 +34,22 @@ router = APIRouter(tags=["chatbot"], prefix="/chatbot")
 )
 def send_message(
     body: ChatbotMessageIn,
-    # ⬇️ usa require_scope come dependency PARAMETRICA per ottenere il user
     user = Depends(get_current_user),
     db: Session = Depends(get_db),
+    streaming: bool = Query(False, description="Se true, risposta in streaming via SSE"),
+    debug: bool = Query(True, description="Se true, risposta in debug via SSE"),
 ):
     if not assistant_id:
-        raise HTTPException(status_code=500, detail="Assistant non configurato (ASSISTANT_ID mancante)")
+        raise HTTPException(500, "Assistant non configurato (ASSISTANT_ID mancante)")
     if not body.message.strip():
-        raise HTTPException(status_code=400, detail="Messaggio vuoto")
+        raise HTTPException(400, "Messaggio vuoto")
 
+    # 1) thread: usa quello del body oppure carica/crea e persisti su DB
     thread_id = (body.thread_id or "").strip()
     if not thread_id:
         db_user = db.query(User).filter(User.username == user["username"]).first()
         if not db_user:
-            raise HTTPException(status_code=404, detail="Utente non trovato")
+            raise HTTPException(404, "Utente non trovato")
 
         if db_user.thread_id:
             thread_id = db_user.thread_id
@@ -47,26 +58,85 @@ def send_message(
             db_user.thread_id = thread_id
             db.commit()
 
-    # 2) aggiungi messaggio utente
+    # 2) append messaggio utente
     try:
         add_user_message(thread_id, body.message)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Errore nel passare il messaggio al thread: {e}")
+        raise HTTPException(502, f"Errore nel passare il messaggio al thread: {e}")
 
-    # 3) run + polling
+    # 3) esecuzione assistant
+    if streaming:
+        async def sse_gen():
+            yield f"event: meta\ndata: {json.dumps({'thread_id': thread_id})}\n\n"
+
+            q: asyncio.Queue[str | None] = asyncio.Queue(maxsize=512)
+            loop = asyncio.get_running_loop()
+
+            def produce():
+                try:
+                    asyncio.run_coroutine_threadsafe(
+                        q.put("__DBG__:producer-started"), loop
+                    ).result()
+                    for piece in run(thread_id, streaming=True):
+                        asyncio.run_coroutine_threadsafe(q.put(piece), loop).result()
+                except Exception as e:
+                    pass
+                    #asyncio.run_coroutine_threadsafe(q.put(f\"__ERR__:{e}\"), loop).result()
+                finally:
+                    asyncio.run_coroutine_threadsafe(q.put(None), loop).result()
+
+            threading.Thread(target=produce, daemon=True).start()
+
+            while True:
+                try:
+                    chunk = await asyncio.wait_for(q.get(), timeout=2.0)
+                except asyncio.TimeoutError:
+                    yield "event: ping\ndata: {}\n\n"
+                    continue
+
+                if chunk is None:
+                    break
+                if chunk.startswith("__ERR__:"):
+                    detail = chunk.replace("__ERR__:", "", 1)
+                    yield f"event: error\ndata: {json.dumps({'detail': detail})}\n\n"
+                    break
+                if chunk.startswith("__DBG__:"):
+                    yield f"event: debug\ndata: {json.dumps({'note': chunk[8:]})}\n\n"
+                    continue
+                if chunk.startswith("__EVT__:"):
+                    # inoltra il tipo di evento SDK per capire cosa arriva nel container
+                    yield f"event: sdk\ndata: {json.dumps({'type': chunk[8:]})}\n\n"
+                    continue
+
+                # vero testo
+                yield f"event: delta\ndata: {json.dumps({'text': chunk})}\n\n"
+
+            yield "event: done\ndata: {}\n\n"
+
+        return StreamingResponse(
+            sse_gen(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
+
+    # → percorso non-streaming (polling + risposta finale)
     try:
-        status_str = run_and_wait(thread_id, assistant_id, timeout_s=60)
+        status_str = run(thread_id, streaming=False, timeout_s=60)
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Errore durante l'esecuzione del run: {e}")
+        raise HTTPException(502, f"Errore durante l'esecuzione del run: {e}")
 
     if status_str != "completed":
-        raise HTTPException(status_code=502, detail=f"Run non completato (stato: {status_str})")
+        raise HTTPException(502, f"Run non completato (stato: {status_str})")
 
-    # 4) recupera risposta
+    # 4) recupera risposta intera
     try:
         reply = get_last_assistant_message(thread_id) or ""
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Errore nel recupero della risposta: {e}")
+        raise HTTPException(502, f"Errore nel recupero della risposta: {e}")
 
     if not reply:
         reply = "(nessuna risposta generata)"
