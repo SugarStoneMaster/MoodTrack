@@ -1,4 +1,6 @@
 # --- PYTHON / FASTAPI ---
+create_tables.py
+app/prova.py
 __pycache__/
 *.py[cod]
 *.pyo
