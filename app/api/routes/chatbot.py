@@ -6,7 +6,7 @@ import threading
 import time
 
 import openai
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, Security
 from fastapi.responses import StreamingResponse
 
 from sqlalchemy.orm import Session
@@ -30,11 +30,10 @@ router = APIRouter(tags=["chatbot"], prefix="/chatbot")
     "/send_message",
     response_model=ChatbotResponse,
     status_code=status.HTTP_200_OK,
-    dependencies=[require_scope("chatbot:write")],
 )
 def send_message(
     body: ChatbotMessageIn,
-    user = Depends(get_current_user),
+    user = Security(get_current_user, scopes=["chatbot:write"]),
     db: Session = Depends(get_db),
     streaming: bool = Query(False, description="Se true, risposta in streaming via SSE"),
     debug: bool = Query(True, description="Se true, risposta in debug via SSE"),

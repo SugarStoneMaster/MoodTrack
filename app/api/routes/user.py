@@ -1,5 +1,5 @@
 # app/api/routes/user.py
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Security
 from sqlalchemy.orm import Session, joinedload
 from app.db import SessionLocal
 from app.db.models import User
@@ -19,7 +19,8 @@ def get_db():
 @router.get("/users/me", response_model=UserWithSettingsOut)
 async def get_my_profile(
     current_user: dict = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    user=Security(get_current_user, scopes=["entries:read"]),
+    db: Session = Depends(get_db),
 ):
     user = (
         db.query(User)

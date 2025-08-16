@@ -99,48 +99,74 @@ jobs:
     # 8) smoke-test API + chatbot
     - name: Smoke tests
       run: |
-        LB=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+        set -euo pipefail
 
-        echo "⌛ waiting /health"
+        # --- resolve LB (ip o hostname) ---
+        LB_IP=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || true)
+        LB_DNS=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
+        LB=${LB_IP:-$LB_DNS}
+        if [ -z "$LB" ]; then
+          echo "❌ LoadBalancer non pronto (niente IP/hostname)"; kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" -o yaml; exit 1
+        fi
+        BASE="http://$LB"
+
+        echo "⌛ waiting /health @ $BASE/health"
         for i in {1..12}; do
-          curl -sf http://"$LB"/health && break
+          curl -sf "$BASE/health" && break
           [[ $i == 12 ]] && { echo "❌ /health KO"; exit 1; }
           sleep 5
         done
         echo "✅ /health OK"
 
-        echo "→ obtain JWT"
-        TOKEN=$(curl -s -X POST http://"$LB"/token \
-          -H "Content-Type: application/x-www-form-urlencoded" \
-          -d "username=$TEST_USER&password=$TEST_PASS" | jq -r .access_token)
-        [ -n "$TOKEN" ] && [ "$TOKEN" != "null" ] || { echo "❌ token retrieval failed"; exit 1; }
-        echo "✅ token OK"
+        echo "→ /auth/login (JSON)"
+        LOGIN_BODY=$(jq -nc --arg u "$TEST_USER" --arg p "$TEST_PASS" --arg d "ci-smoke" \
+          '{username:$u,password:$p,device:$d}')
+        LOGIN_JSON=$(curl -sS -f -X POST "$BASE/auth/login" \
+          -H "Content-Type: application/json" \
+          -d "$LOGIN_BODY") || { echo "❌ /auth/login failed"; exit 1; }
 
-        echo "→ POST /entries"
-        POST=$(curl -s -o /dev/null -w '%{http_code}' \
-          -X POST http://"$LB"/entries \
-          -H "Authorization: Bearer $TOKEN" \
+        ACCESS=$(echo "$LOGIN_JSON"  | jq -r '.access_token')
+        REFRESH=$(echo "$LOGIN_JSON" | jq -r '.refresh_token')
+        [ -n "$ACCESS" ]  && [ "$ACCESS"  != "null" ]  || { echo "❌ access_token mancante";  echo "$LOGIN_JSON"; exit 1; }
+        [ -n "$REFRESH" ] && [ "$REFRESH" != "null" ] || { echo "❌ refresh_token mancante"; echo "$LOGIN_JSON"; exit 1; }
+        echo "✅ login OK (access+refresh)"
+
+        echo "→ POST /entries (Bearer)"
+        CODE_POST=$(curl -s -o /dev/null -w '%{http_code}' \
+          -X POST "$BASE/entries" \
+          -H "Authorization: Bearer $ACCESS" \
           -H "Content-Type: application/json" \
           -d '{"content":"smoke test entry","mood":5}')
-        [ "$POST" = "201" ] || { echo "❌ POST /entries -> $POST"; exit 1; }
+        [ "$CODE_POST" = "201" ] || { echo "❌ POST /entries -> $CODE_POST"; exit 1; }
         echo "✅ POST /entries OK"
 
         echo "→ GET /entries"
-        LEN=$(curl -s -H "Authorization: Bearer $TOKEN" http://"$LB"/entries | jq 'length')
+        LEN=$(curl -s -H "Authorization: Bearer $ACCESS" "$BASE/entries" | jq 'length')
         [ "$LEN" -ge 1 ] || { echo "❌ GET /entries empty"; exit 1; }
         echo "✅ GET /entries OK ($LEN entries)"
 
-        echo "→ Chatbot /chatbot/send_message"
-        CODE=$(curl -s -o /tmp/chat.json -w '%{http_code}' \
-          -X POST http://"$LB"/chatbot/send_message \
-          -H "Authorization: Bearer $TOKEN" \
+        echo "→ /auth/refresh (rotazione refresh)"
+        REFRESH_BODY=$(jq -nc --arg r "$REFRESH" --arg d "ci-smoke" '{refresh_token:$r,device:$d}')
+        REFRESH_JSON=$(curl -sS -f -X POST "$BASE/auth/refresh" \
+          -H "Content-Type: application/json" \
+          -d "$REFRESH_BODY") || { echo "❌ /auth/refresh failed"; exit 1; }
+
+        NEW_ACCESS=$(echo "$REFRESH_JSON"  | jq -r '.access_token')
+        NEW_REFRESH=$(echo "$REFRESH_JSON" | jq -r '.refresh_token')
+        [ -n "$NEW_ACCESS" ]  && [ "$NEW_ACCESS"  != "null" ]  || { echo "❌ new access_token mancante";  echo "$REFRESH_JSON"; exit 1; }
+        [ -n "$NEW_REFRESH" ] && [ "$NEW_REFRESH" != "null" ] || { echo "❌ new refresh_token mancante"; echo "$REFRESH_JSON"; exit 1; }
+        echo "✅ refresh OK (token ruotato)"
+
+        echo "→ Chatbot /chatbot/send_message con NEW_ACCESS"
+        CODE_CHAT=$(curl -s -o /tmp/chat.json -w '%{http_code}' \
+          -X POST "$BASE/chatbot/send_message" \
+          -H "Authorization: Bearer $NEW_ACCESS" \
           -H "Content-Type: application/json" \
           -d '{"message":"Ciao, dammi un breve spunto di journaling per oggi."}')
-        [ "$CODE" = "200" ] || { echo "❌ /chatbot/send_message -> $CODE"; cat /tmp/chat.json; exit 1; }
+        [ "$CODE_CHAT" = "200" ] || { echo "❌ /chatbot/send_message -> $CODE_CHAT"; cat /tmp/chat.json; exit 1; }
 
         THREAD_ID=$(jq -r '.thread_id' /tmp/chat.json)
         REPLY=$(jq -r '.reply' /tmp/chat.json)
-
         [ -n "$THREAD_ID" ] && [ "$THREAD_ID" != "null" ] || { echo "❌ thread_id mancante"; cat /tmp/chat.json; exit 1; }
-        [ -n "$REPLY" ] && [ "$REPLY" != "null" ] || { echo "❌ reply mancante"; cat /tmp/chat.json; exit 1; }
+        [ -n "$REPLY" ]     && [ "$REPLY"     != "null" ] || { echo "❌ reply mancante";     cat /tmp/chat.json; exit 1; }
         echo "✅ Chatbot OK (thread_id: $THREAD_ID)"

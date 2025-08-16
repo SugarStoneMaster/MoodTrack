@@ -1,4 +1,6 @@
 import os
+from datetime import datetime
+
 from sqlalchemy import create_engine, String, Integer, DateTime, func, ForeignKey
 from sqlalchemy.orm import sessionmaker, DeclarativeBase, Mapped, mapped_column, relationship
 from dotenv import load_dotenv          # ⬅️  nuovo
@@ -24,6 +26,9 @@ class User(Base):
 
     entries: Mapped[list["Entry"]] = relationship(back_populates="user", cascade="all, delete-orphan")
     settings: Mapped["UserSettings | None"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        back_populates="user", cascade="all, delete-orphan"
+    )
 
 class UserSettings(Base):
     __tablename__ = "user_settings"
@@ -54,3 +59,25 @@ class Entry(Base):
     )
 
     user: Mapped["User"] = relationship(back_populates="entries")
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64),  # ← uguale a users.username
+        ForeignKey("users.username", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=False),
+                                                server_default=func.sysutcdatetime(),
+                                                nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=False), nullable=False)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=False))
+    device: Mapped[str | None] = mapped_column(String(128))
+    rotated_from: Mapped[str | None] = mapped_column(String(64))
+
+    user: Mapped["User"] = relationship(back_populates="refresh_tokens")

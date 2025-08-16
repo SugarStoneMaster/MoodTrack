@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, status, Security
 from sqlalchemy.orm import Session
 from app.api.queueing import enqueue_entry
 from app.core.deps import get_current_user, require_scope
@@ -12,9 +12,12 @@ router = APIRouter()
 def health():
     return "OK"
 
-@router.post("/entries", response_model=EntryOut, status_code=status.HTTP_201_CREATED,
-    dependencies=[require_scope("entries:write")],)
-def create_entry(body: EntryCreate, user=Depends(get_current_user), db: Session = Depends(get_db),):
+@router.post("/entries", response_model=EntryOut, status_code=status.HTTP_201_CREATED,)
+def create_entry(
+        body: EntryCreate,
+        user=Security(get_current_user, scopes=["entries:write"]),
+        db: Session = Depends(get_db),
+):
     e = Entry(
         user_id=user["username"],
         content=body.content,
@@ -27,10 +30,9 @@ def create_entry(body: EntryCreate, user=Depends(get_current_user), db: Session 
 @router.get(
     "/entries",
     response_model=list[EntryOut],
-    dependencies=[require_scope("entries:read")],
 )
 def list_entries(
-    user=Depends(get_current_user),
+    user = Security(get_current_user, scopes=["entries:read"]),
     db: Session = Depends(get_db),
 ):
     return (
