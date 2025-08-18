@@ -4,10 +4,10 @@ metadata:
   name: moodtrack-api-svc
   namespace: moodtrack
   annotations:
+    service.beta.kubernetes.io/azure-pip-name: moodtrack-api-ip
     service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-moodtrack-dev
 spec:
   type: LoadBalancer
-  loadBalancerIP: 72.146.13.184
   selector:
     app: moodtrack-api
   ports:
