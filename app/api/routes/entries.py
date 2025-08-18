@@ -8,9 +8,7 @@ from app.schemas.entry import EntryCreate, EntryOut
 
 router = APIRouter()
 
-@router.get("/health")
-def health():
-    return "OK"
+
 
 @router.post("/entries", response_model=EntryOut, status_code=status.HTTP_201_CREATED,)
 def create_entry(
@@ -20,6 +18,7 @@ def create_entry(
 ):
     e = Entry(
         user_id=user["username"],
+        title=body.title,
         content=body.content,
         mood=body.mood,
     )

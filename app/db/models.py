@@ -52,6 +52,7 @@ class Entry(Base):
     user_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("users.username", ondelete="CASCADE"), index=True
     )
+    title: Mapped[str] = mapped_column(String(100), index=True)
     content: Mapped[str] = mapped_column(String(2000))
     mood: Mapped[int | None] = mapped_column(Integer, nullable=True)     # 0–10 se vuoi aggiungi CHECK a DB
     created_at: Mapped[DateTime] = mapped_column(
