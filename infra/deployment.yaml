@@ -41,7 +41,10 @@ spec:
                   name: api-secrets
                   key: SECRET_KEY
             - name: ALGORITHM
-              value: "HS256"
+              valueFrom:
+                secretKeyRef:
+                  name: api-secrets
+                  key: ALGORITHM
 
             # ── DB
             - name: SQL_URL
@@ -57,7 +60,10 @@ spec:
                   name: storage-conn
                   key: conn
             - name: SENTIMENT_QUEUE
-              value: "sentiment-jobs"
+              valueFrom:
+                secretKeyRef:
+                  name: storage-conn
+                  key: sentiment_queue
 
             # ── Chiave interna per /internal/*
             - name: JOB_KEY

@@ -85,9 +85,12 @@ jobs:
           --dry-run=client -o yaml | kubectl apply -f -
 
         # --- Storage connection for sentiment-jobs queue ---
+        # --- Storage connection + sentiment queue ---
         kubectl create secret generic storage-conn -n "$NAMESPACE" \
           --from-literal=conn='${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}' \
+          --from-literal=sentiment_queue='${{ secrets.SENTIMENT_QUEUE }}' \
           --dry-run=client -o yaml | kubectl apply -f -
+        
 
     # 7) deploy (sed + apply + rollout)
     - name: Deploy to AKS

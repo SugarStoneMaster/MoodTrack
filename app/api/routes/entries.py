@@ -23,7 +23,7 @@ def create_entry(
         mood=body.mood,
     )
     db.add(e); db.commit(); db.refresh(e)
-    #enqueue_entry(e.id)
+    enqueue_entry(e.id)
     return e
 
 @router.get(
