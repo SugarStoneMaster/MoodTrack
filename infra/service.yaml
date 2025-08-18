@@ -6,8 +6,10 @@ metadata:
   annotations:
     service.beta.kubernetes.io/azure-pip-name: moodtrack-api-ip
     service.beta.kubernetes.io/azure-load-balancer-resource-group: rg-moodtrack-dev
+    service.beta.kubernetes.io/azure-load-balancer-ipv4: /subscriptions/042f1733-7575-499d-b5ef-f51f18ae0f50/resourceGroups/rg-moodtrack-dev/providers/Microsoft.Network/publicIPAddresses/moodtrack-api-ip
 spec:
   type: LoadBalancer
+  loadBalancerIP: 72.146.10.151
   selector:
     app: moodtrack-api
   ports:
