@@ -97,6 +97,7 @@ jobs:
       run: |
         sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}|g" infra/deployment.yaml
         kubectl apply -f infra/deployment.yaml -n "$NAMESPACE"
+        kubectl apply -f infra/service.yaml -n "$NAMESPACE"
         kubectl rollout status deployment/moodtrack-api -n "$NAMESPACE" --timeout=300s
 
     # 8) smoke-test API + chatbot
