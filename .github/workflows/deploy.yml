@@ -100,7 +100,7 @@ jobs:
         kubectl apply -f infra/service.yaml -n "$NAMESPACE"
         kubectl rollout status deployment/moodtrack-api -n "$NAMESPACE" --timeout=300s
 
-    # 8) smoke-test API + chatbot
+    # 8) smoke-test API + chatbott
     - name: Smoke tests
       run: |
         set -euo pipefail
