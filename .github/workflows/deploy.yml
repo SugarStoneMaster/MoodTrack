@@ -140,7 +140,7 @@ jobs:
           -X POST "$BASE/entries" \
           -H "Authorization: Bearer $ACCESS" \
           -H "Content-Type: application/json" \
-          -d '{"title":"smoke test title","content":"smoke test entry Im HAPPY"}')
+          -d '{"title":"smoke test title","content":"smoke test entry sono molto molto felice"}')
         [ "$CODE_POST" = "201" ] || { echo "❌ POST /entries -> $CODE_POST"; exit 1; }
         echo "✅ POST /entries OK"
 
