@@ -13,3 +13,6 @@ sqlalchemy
 pyodbc
 azure-storage-queue==12.9.0
 openai>=1.41.0
+azure-appconfiguration>=1.5.0
+azure-identity>=1.16.0  # (per MI in futuro)
+python-dateutil

@@ -91,6 +91,11 @@ jobs:
           --from-literal=sentiment_queue='${{ secrets.SENTIMENT_QUEUE }}' \
           --dry-run=client -o yaml | kubectl apply -f -
         
+        # --- App Configuration (feature flags) ---
+        kubectl create secret generic appconfig-conn -n "$NAMESPACE" \
+          --from-literal=connection_string='${{ secrets.APP_CONFIG_CONNECTION_STRING }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
 
     # 7) deploy (sed + apply + rollout)
     - name: Deploy to AKS
@@ -174,3 +179,20 @@ jobs:
         [ -n "$THREAD_ID" ] && [ "$THREAD_ID" != "null" ] || { echo "❌ thread_id mancante"; cat /tmp/chat.json; exit 1; }
         [ -n "$REPLY" ]     && [ "$REPLY"     != "null" ] || { echo "❌ reply mancante";     cat /tmp/chat.json; exit 1; }
         echo "✅ Chatbot OK (thread_id: $THREAD_ID)"
+        
+        
+        echo "→ GET /chatbot/prompt_of_day"
+        PROMPT_JSON=$(curl -sS -f "$BASE/chatbot/prompt_of_day" \
+          -H "Authorization: Bearer $NEW_ACCESS") || { echo "❌ /chatbot/prompt_of_day failed"; exit 1; }
+
+        ENABLED=$(echo "$PROMPT_JSON" | jq -r '.enabled')
+        TEXT=$(echo "$PROMPT_JSON" | jq -r '.text // empty')
+
+        if [ "$ENABLED" != "true" ]; then
+          echo "❌ prompt_of_day.disabled -> $PROMPT_JSON"; exit 1
+        fi
+        if [ -z "$TEXT" ]; then
+          echo "❌ prompt_of_day.text mancante -> $PROMPT_JSON"; exit 1
+        fi
+
+        echo "✅ prompt_of_day OK (text: $TEXT)"

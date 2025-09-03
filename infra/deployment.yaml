@@ -93,3 +93,12 @@ spec:
                 secretKeyRef:
                   name: aoai
                   key: assistant_id
+
+            # ── App Configuration (feature flags)
+            - name: APP_CONFIG_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: appconfig-conn
+                  key: connection_string
+            - name: APP_CONFIG_LABEL
+              value: "dev"

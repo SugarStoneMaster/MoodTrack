@@ -23,6 +23,7 @@ from app.api.assistant import (
     get_last_assistant_message,
     run,
 )
+from app.core.feature_flags import get_bool, get_value
 
 router = APIRouter(tags=["chatbot"], prefix="/chatbot")
 
@@ -38,6 +39,8 @@ def send_message(
     streaming: bool = Query(False, description="Se true, risposta in streaming via SSE"),
     debug: bool = Query(True, description="Se true, risposta in debug via SSE"),
 ):
+    if not get_bool("features:chatbot_enabled", default=True):
+        raise HTTPException(status_code=503, detail="Chatbot temporarily disabled")
     if not assistant_id:
         raise HTTPException(500, "Assistant non configurato (ASSISTANT_ID mancante)")
     if not body.message.strip():
@@ -141,3 +144,11 @@ def send_message(
         reply = "(nessuna risposta generata)"
 
     return ChatbotResponse(thread_id=thread_id, reply=reply)
+
+
+@router.get("/prompt_of_day")
+def get_prompt():
+    if not get_bool("features:prompts_daily_enabled", True):
+        return {"enabled": False}
+    text = get_value("ui:prompt_of_day_text", "Di cosa sei grato oggi?")
+    return {"enabled": True, "text": text}
