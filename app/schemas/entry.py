@@ -4,7 +4,7 @@ from datetime import datetime
 class EntryCreate(BaseModel):
     title: str = Field(min_length=1, max_length=100)
     content: str = Field(min_length=1, max_length=2_000)
-    mood: int | None = Field(default=None, ge=0, le=10)
+    mood: int | None = Field(default=None, ge=0, le=5)
 
 class EntryOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)  # ← importante per SQLAlchemy

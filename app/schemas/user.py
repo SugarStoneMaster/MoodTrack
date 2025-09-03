@@ -14,15 +14,29 @@ class UserOut(BaseModel):
     created_at: datetime
 
 class UserSettingsOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-    reminder_hour: int | None = Field(default=None, ge=0, le=23)
-    tz: str | None = None
-    notifications_enabled: bool = True
+    tz_iana: str
+    weekly_summary_day: Optional[int]  # 0–6
+    email_opt_in: bool
+    weekly_last_sent_at_utc: datetime
+
+    # reminder_enabled: bool
+    # reminder_minute: Optional[int]     # 0..1439, può essere None
+    # last_sent_at_utc: Optional[datetime]
+    # push_opt_in: bool
+
+    created_at: datetime
+    updated_at: Optional[datetime]
+
 
 class UserSettingsUpdate(BaseModel):
-    reminder_hour: int | None = Field(default=None, ge=0, le=23)
-    tz: str | None = None
-    notifications_enabled: bool | None = None
+    tz_iana: str
+    weekly_summary_day: Optional[int]  # 0–6
+    email_opt_in: bool
+    weekly_last_sent_at_utc: datetime
+
+    # reminder_minute: int | None = Field(default=None, ge=0, le=23)
+    # tz_iana: str | None = None
+    # reminder_enabled: bool | None = None
 
 
 class UserWithSettingsOut(BaseModel):
