@@ -5,6 +5,8 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from azure.monitor.opentelemetry.exporter import AzureMonitorTraceExporter
+from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProcessor
+
 
 cs = os.getenv("APPLICATIONINSIGHTS_CONNECTION_STRING")
 if cs:
@@ -14,5 +16,6 @@ if cs:
     })
     provider = TracerProvider(resource=resource)
     trace.set_tracer_provider(provider)
+    provider.add_span_processor(SimpleSpanProcessor(ConsoleSpanExporter()))
     exporter = AzureMonitorTraceExporter.from_connection_string(cs)
     provider.add_span_processor(BatchSpanProcessor(exporter))
