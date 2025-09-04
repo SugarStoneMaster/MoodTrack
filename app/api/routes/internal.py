@@ -1,4 +1,6 @@
 # app/api/internal.py
+import hashlib
+import logging
 import os, hmac
 from typing import Annotated
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -8,12 +10,22 @@ from app.db.models import Entry
 
 router = APIRouter(prefix="/internal", tags=["internal"])
 
-JOB_KEY = os.getenv("JOB_KEY")
 
-JobKeyHeader = Annotated[str | None, Header(alias="X-Job-Key")]
+JOB_KEY = os.getenv("JOB_KEY","")
 
-def check_job_key(x_job_key: JobKeyHeader = None):
-    if not (JOB_KEY and x_job_key and hmac.compare_digest(x_job_key, JOB_KEY)):
+def check_job_key(x_job_key: str | None = Header(None, alias="X-Job-Key")):
+    if not JOB_KEY:
+        raise HTTPException(status_code=500, detail="job key not configured")
+
+    # log diagnostico non sensibile
+    logging.info("internal.check_job_key | header_present=%s len=%s",
+                 x_job_key is not None, len(x_job_key or ""))
+
+    ok = x_job_key is not None and hmac.compare_digest(
+        hashlib.sha256((x_job_key or "").encode()).digest(),
+        hashlib.sha256(JOB_KEY.encode()).digest()
+    )
+    if not ok:
         raise HTTPException(status_code=401, detail="invalid job key")
 
 @router.get("/entries/{entry_id}")
