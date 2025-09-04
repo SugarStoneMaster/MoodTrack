@@ -1,6 +1,6 @@
 import os
 
-from fastapi import Depends, HTTPException, status, Security
+from fastapi import Depends, HTTPException, status, Security, Request
 from fastapi.security import OAuth2PasswordBearer, SecurityScopes
 from typing import List
 from jose import jwt
@@ -39,3 +39,14 @@ async def get_current_user(security_scopes: SecurityScopes, token: str = Securit
 
 def require_scope(scope: str):
     return Depends(lambda user=Depends(get_current_user): user)  # semplice wrapper
+
+
+async def stamp_user(request: Request, me = Depends(get_current_user)):
+    """
+    Dipendenza che salva lo user_id nel request.state per la telemetria.
+    """
+    # Adatta il campo: "username", "sub", "id"… dipende dal tuo get_current_user
+    uid = me.get("username") or me.get("sub") or me.get("id")
+    if uid:
+        request.state.user_id = str(uid)
+    return me  # così le route che la usano hanno anche 'me'

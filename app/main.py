@@ -1,3 +1,4 @@
+import os
 
 import app.obs.otel_init
 from fastapi import FastAPI, Depends
@@ -9,7 +10,8 @@ from app.db import Base, engine
 from app.api.routes import auth, entries, user
 from app.core.feature_flags import snapshot
 import logging
-from app.obs.enrich import TelemetryEnricher, stamp_user_id
+from app.obs.enrich import TelemetryEnricher
+from app.core.deps import stamp_user
 
 logging.getLogger("azure").setLevel(logging.WARNING)
 logging.getLogger("azure.core.pipeline.policies.http_logging_policy").setLevel(logging.WARNING)
@@ -32,10 +34,10 @@ def log_flags_on_startup():
 
 app.include_router(health.router)
 app.include_router(auth.router)
-app.include_router(entries.router,  dependencies=[Depends(stamp_user_id)])
-app.include_router(user.router,     dependencies=[Depends(stamp_user_id)])
-app.include_router(internal.router, dependencies=[Depends(stamp_user_id)])
-app.include_router(chatbot.router,  dependencies=[Depends(stamp_user_id)])
+app.include_router(entries.router,  dependencies=[Depends(stamp_user)])
+app.include_router(user.router,     dependencies=[Depends(stamp_user)])
+app.include_router(internal.router, dependencies=[Depends(stamp_user)])
+app.include_router(chatbot.router,  dependencies=[Depends(stamp_user)])
 
 app.add_middleware(TelemetryEnricher)
 
