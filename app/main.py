@@ -36,8 +36,10 @@ app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(entries.router,  dependencies=[Depends(stamp_user)])
 app.include_router(user.router,     dependencies=[Depends(stamp_user)])
-app.include_router(internal.router, dependencies=[Depends(stamp_user)])
 app.include_router(chatbot.router,  dependencies=[Depends(stamp_user)])
+
+app.include_router(internal.router)
+
 
 app.add_middleware(TelemetryEnricher)
 
