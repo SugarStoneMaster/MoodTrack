@@ -84,7 +84,6 @@ jobs:
           --from-literal=assistant_id='${{ secrets.AZURE_OPENAI_ASSISTANT_ID }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- Storage connection for sentiment-jobs queue ---
         # --- Storage connection + sentiment queue ---
         kubectl create secret generic storage-conn -n "$NAMESPACE" \
           --from-literal=conn='${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}' \
@@ -110,7 +109,7 @@ jobs:
         kubectl apply -f infra/service.yaml -n "$NAMESPACE"
         kubectl rollout status deployment/moodtrack-api -n "$NAMESPACE" --timeout=300s
 
-    # 8) smoke-test API + chatbott
+    # 8) smoke-test API + chatbot + mood async
     - name: Smoke tests
       run: |
         set -euo pipefail
@@ -146,15 +145,29 @@ jobs:
         echo "✅ login OK (access+refresh)"
 
         echo "→ POST /entries (Bearer)"
-        CODE_POST=$(curl -s -o /dev/null -w '%{http_code}' \
-          -X POST "$BASE/entries" \
+        CREATE_JSON=$(curl -sS -f -X POST "$BASE/entries" \
           -H "Authorization: Bearer $ACCESS" \
           -H "Content-Type: application/json" \
-          -d '{"title":"smoke test title","content":"smoke test entry sono molto molto felice"}')
-        [ "$CODE_POST" = "201" ] || { echo "❌ POST /entries -> $CODE_POST"; exit 1; }
-        echo "✅ POST /entries OK"
+          -d '{"title":"smoke test title","content":"smoke test entry sono molto molto felice"}') \
+          || { echo "❌ POST /entries failed"; exit 1; }
+        echo "↪︎ create response: $CREATE_JSON"
 
-        echo "→ GET /entries"
+        # Prova a leggere l'ID dal response, fallback alla lista
+        ENTRY_ID=$(echo "$CREATE_JSON" | jq -r '.id // empty')
+        if [ -z "$ENTRY_ID" ] || [ "$ENTRY_ID" = "null" ]; then
+          echo "ℹ️ POST /entries non ha restituito id; provo dalla lista"
+          # Se disponibile, prova a filtrare per titolo; altrimenti prendi il max id
+          ENTRY_ID=$(curl -sS -H "Authorization: Bearer $ACCESS" "$BASE/entries" \
+            | jq -r 'map(select(.title=="smoke test title")) | max_by(.id) | .id // empty')
+          if [ -z "$ENTRY_ID" ] || [ "$ENTRY_ID" = "null" ]; then
+            ENTRY_ID=$(curl -sS -H "Authorization: Bearer $ACCESS" "$BASE/entries" \
+              | jq -r 'max_by(.id) | .id')
+          fi
+        fi
+        [ -n "$ENTRY_ID" ] && [ "$ENTRY_ID" != "null" ] || { echo "❌ impossibile determinare ENTRY_ID"; exit 1; }
+        echo "✅ POST /entries OK (id=$ENTRY_ID)"
+
+        echo "→ GET /entries (lista base)"
         LEN=$(curl -s -H "Authorization: Bearer $ACCESS" "$BASE/entries" | jq 'length')
         [ "$LEN" -ge 1 ] || { echo "❌ GET /entries empty"; exit 1; }
         echo "✅ GET /entries OK ($LEN entries)"
@@ -185,19 +198,36 @@ jobs:
         [ -n "$REPLY" ]     && [ "$REPLY"     != "null" ] || { echo "❌ reply mancante";     cat /tmp/chat.json; exit 1; }
         echo "✅ Chatbot OK (thread_id: $THREAD_ID)"
         
-        
         echo "→ GET /chatbot/prompt_of_day"
         PROMPT_JSON=$(curl -sS -f "$BASE/chatbot/prompt_of_day" \
           -H "Authorization: Bearer $NEW_ACCESS") || { echo "❌ /chatbot/prompt_of_day failed"; exit 1; }
 
         ENABLED=$(echo "$PROMPT_JSON" | jq -r '.enabled')
         TEXT=$(echo "$PROMPT_JSON" | jq -r '.text // empty')
-
         if [ "$ENABLED" != "true" ]; then
           echo "❌ prompt_of_day.disabled -> $PROMPT_JSON"; exit 1
         fi
         if [ -z "$TEXT" ]; then
           echo "❌ prompt_of_day.text mancante -> $PROMPT_JSON"; exit 1
         fi
-
         echo "✅ prompt_of_day OK (text: $TEXT)"
+
+        echo "→ Wait for async mood on entry $ENTRY_ID"
+        MOOD=""
+        for i in {1..18}; do  # ~3 minuti (18 * 10s)
+          RESP=$(curl -s -H "Authorization: Bearer $ACCESS" "$BASE/entries/$ENTRY_ID" || true)
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $ACCESS" "$BASE/entries/$ENTRY_ID")
+          if [ "$CODE" = "200" ]; then
+            MOOD=$(echo "$RESP" | jq -r '.mood // empty')
+            if [ -n "$MOOD" ] && [ "$MOOD" != "null" ] && [ "$MOOD" -ge 1 ] && [ "$MOOD" -le 5 ]; then
+              echo "✅ mood pronto per entry $ENTRY_ID: $MOOD"
+              break
+            fi
+          fi
+          echo "… mood non ancora disponibile (tentativo $i/18)"
+          sleep 10
+        done
+        if ! [ -n "$MOOD" ] || ! [ "$MOOD" -ge 1 ] || ! [ "$MOOD" -le 5 ]; then
+          echo "❌ mood non pronto entro il timeout o valore fuori range. Ultima risposta: $RESP"
+          exit 1
+        fi

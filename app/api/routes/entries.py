@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, status, Security
+from fastapi import APIRouter, Depends, status, Security, HTTPException
 from sqlalchemy.orm import Session
 from app.api.queueing import enqueue_entry
 from app.core.deps import get_current_user, require_scope
@@ -41,3 +41,11 @@ def list_entries(
         .limit(50)
         .all()
     )
+
+
+@router.get("/entries/{entry_id}", response_model=EntryOut)
+def get_entry(entry_id: int, db: Session = Depends(get_db), user=Security(get_current_user, scopes=["entries:read"])):
+    e = db.query(Entry).filter(Entry.id == entry_id).first()
+    if not e:
+        raise HTTPException(status_code=404, detail="not found")
+    return e
