@@ -102,3 +102,12 @@ spec:
                   key: connection_string
             - name: APP_CONFIG_LABEL
               value: "dev"
+
+            # ── Application Insights
+            - name: APPLICATIONINSIGHTS_CONNECTION_STRING
+              valueFrom:
+                secretKeyRef:
+                  name: appinsights
+                  key: connection_string
+            - name: APP_ENV
+              value: "dev"

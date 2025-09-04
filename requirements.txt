@@ -16,3 +16,8 @@ openai>=1.41.0
 azure-appconfiguration>=1.5.0
 azure-identity>=1.16.0  # (per MI in futuro)
 python-dateutil
+opentelemetry-distro
+azure-monitor-opentelemetry-exporter
+opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-requests
+opentelemetry-instrumentation-sqlalchemy

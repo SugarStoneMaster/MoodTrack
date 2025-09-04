@@ -96,6 +96,11 @@ jobs:
           --from-literal=connection_string='${{ secrets.APP_CONFIG_CONNECTION_STRING }}' \
           --dry-run=client -o yaml | kubectl apply -f -
         
+        # --- Application Insights (connection string) ---
+        kubectl create secret generic appinsights -n "$NAMESPACE" \
+          --from-literal=connection_string='${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}' \
+          --dry-run=client -o yaml | kubectl apply -f -
+        
 
     # 7) deploy (sed + apply + rollout)
     - name: Deploy to AKS
