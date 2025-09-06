@@ -60,49 +60,23 @@ jobs:
         run: |
           set -euo pipefail
           az extension add --name load --yes || az extension update --name load
+          az extension show --name load
 
-      - name: Prepara working dir e patch dinamiche
+      - name: Prepara working dir (solo patch API_BASE)
         run: |
           set -euo pipefail
           mkdir -p work
-          cp loadtests/config.yaml   work/config.yaml
-          cp loadtests/requests.json work/requests.json
-          cp loadtests/users.csv     work/users.csv || true
-
-          echo "⮑ Patch VU/durata/ramp in requests.json"
-          jq --argjson vus "${{ inputs.vus }}" \
-             --argjson dur "${{ inputs.duration_s }}" \
-             --argjson ramp "${{ inputs.rampup_s }}" \
-             '.testSetup[0].virtualUsersPerEngine=$vus
-              | .testSetup[0].durationInSeconds=$dur
-              | .testSetup[0].rampUpTimeInSeconds=$ramp' \
-             work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
-
-          if [ "${{ inputs.include_chatbot }}" = "true" ]; then
-            echo "⮑ Aggiungo richiesta /chatbot/send_message"
-            jq '.scenarios.apiScenario.requests += [{
-                  "requestName":"chat",
-                  "requestType":"URL",
-                  "endpoint":"${API_BASE}/chatbot/send_message",
-                  "method":"POST",
-                  "headers":{"Content-Type":"application/json","Authorization":"Bearer ${token}"},
-                  "body":"{ \"message\": \"ping\" }",
-                  "requestBodyFormat":"JSON"
-                }]' \
-                work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
-          fi
-
-          echo "⮑ Patch engineInstances e soglie in config.yaml (schema nuovo)"
-          sed -i -E "s/(engineInstances:\s*)[0-9]+/\1${{ inputs.engines }}/" work/config.yaml
-          sed -i -E "s|value: \"http://REPLACE_ME\"|value: \"${{ inputs.api_base }}\"|" work/config.yaml
-          sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > ${{ inputs.threshold_error_pct }}/" work/config.yaml
-          sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > ${{ inputs.threshold_avg_ms }}/" work/config.yaml
-          sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1${{ inputs.threshold_post_p95_ms }}/" work/config.yaml
-
-          echo "----- config.yaml -----"; cat work/config.yaml
+          cp loadtests/requests.json  work/requests.json
+          cp loadtests/users.csv      work/users.csv || true
+          cp loadtests/config.json    work/config.json
+          # patch solo l’endpoint base nel config.json
+          jq --arg api "${{ inputs.api_base }}" \
+             '.testModel.environmentVariables = [{"name":"API_BASE","value":$api}]' \
+             work/config.json > work/config.tmp && mv work/config.tmp work/config.json
+          echo "----- config.json -----"; cat work/config.json
           echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
 
-      - name: Crea/Aggiorna test in ALT
+      - name: Crea/Aggiorna test in ALT (schema con testModel)
         working-directory: work
         run: |
           set -euo pipefail
@@ -110,7 +84,7 @@ jobs:
             --resource-group "$ALT_RG" \
             --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
-            --load-test-config-file config.yaml
+            --load-test-config-file config.json
 
       - name: Avvia test-run
         working-directory: work
