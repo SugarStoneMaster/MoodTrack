@@ -5,41 +5,33 @@ on:
     inputs:
       api_base:
         description: "Base URL (es. http://4.232.242.251)"
-        default: "http://4.232.242.251"
         required: true
         type: string
       vus:
         description: "Virtual users per engine"
-        default: "50"
+        required: false
+        default: "20"
         type: number
       duration_s:
         description: "Durata (sec)"
-        default: "200"
+        required: false
+        default: "600"
         type: number
       rampup_s:
         description: "Ramp-up (sec)"
-        default: "100"
+        required: false
+        default: "120"
         type: number
       engines:
         description: "Engine instances"
+        required: false
         default: "1"
         type: number
       include_chatbot:
         description: "Aggiungi POST /chatbot/send_message"
+        required: false
         default: false
         type: boolean
-      threshold_error_pct:
-        description: "Soglia percentage(error)"
-        default: "2"
-        type: number
-      threshold_avg_ms:
-        description: "Soglia avg(response_time_ms)"
-        default: "1500"
-        type: number
-      threshold_post_p95_ms:
-        description: "Soglia p95 POST /entries (ms)"
-        default: "700"
-        type: number
 
 jobs:
   run-alt:
@@ -47,7 +39,6 @@ jobs:
     env:
       ALT_RG:   ${{ vars.ALT_RG || 'rg-moodtrack-dev' }}
       ALT_NAME: ${{ vars.ALT_NAME || 'alt-moodtrack-dev' }}
-      TEST_ID:  moodtrack-api-url
     steps:
       - uses: actions/checkout@v4
 
@@ -56,32 +47,25 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Install Azure Load Testing CLI extension
-        run: |
-          set -euo pipefail
-          az version
-          # Estensione corretta (preview)
-          az extension add --name load --yes || az extension update --name load
-
-      - name: Prepara working dir + patch dinamiche
+      - name: Prepara working dir e patch dinamiche
         run: |
           set -euo pipefail
           mkdir -p work
-          cp loadtests/config.yaml    work/config.yaml
-          cp loadtests/requests.json  work/requests.json
-          cp loadtests/users.csv      work/users.csv || true
+          cp loadtests/config.yaml   work/config.yaml
+          cp loadtests/requests.json work/requests.json
+          cp loadtests/users.csv     work/users.csv || true
 
-          echo "⮑ Patch VU/durata/ramp in requests.json"
-          jq --argjson vus "${{ inputs.vus }}" \
-             --argjson dur "${{ inputs.duration_s }}" \
+          # Patch VU/durata/ramp
+          jq --argjson vus  "${{ inputs.vus }}" \
+             --argjson dur  "${{ inputs.duration_s }}" \
              --argjson ramp "${{ inputs.rampup_s }}" \
              '.testSetup[0].virtualUsersPerEngine=$vus
               | .testSetup[0].durationInSeconds=$dur
               | .testSetup[0].rampUpTimeInSeconds=$ramp' \
              work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
 
+          # (opz) Aggiungi la request chatbot
           if [ "${{ inputs.include_chatbot }}" = "true" ]; then
-            echo "⮑ Aggiungo richiesta /chatbot/send_message"
             jq '.scenarios.apiScenario.requests += [{
                   "requestName":"chat",
                   "requestType":"URL",
@@ -91,62 +75,60 @@ jobs:
                   "body":"{ \"message\": \"ping\" }",
                   "requestBodyFormat":"JSON"
                 }]' \
-                work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
+              work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
           fi
 
-          echo "⮑ Patch engineInstances e soglie in config.yaml (schema con testModel)"
-          # engineInstances
-          sed -i -E "s/(engineInstances:\s*)[0-9]+/\1${{ inputs.engines }}/" work/config.yaml
-          # API_BASE env nel testModel.environmentVariables
-          sed -i -E "s|value: \"http://REPLACE_ME\"|value: \"${{ inputs.api_base }}\"|" work/config.yaml
-          # failure criteria
-          sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > ${{ inputs.threshold_error_pct }}/" work/config.yaml
-          sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > ${{ inputs.threshold_avg_ms }}/" work/config.yaml
-          sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1${{ inputs.threshold_post_p95_ms }}/" work/config.yaml
+          # Patch engine instances nel config
+          sed -i -E "s/^engineInstances:\s*[0-9]+/engineInstances: ${{ inputs.engines }}/" work/config.yaml
 
           echo "----- config.yaml -----"; cat work/config.yaml
           echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
 
-      - name: Crea/Aggiorna test in ALT (dalla cartella work/)
-        run: |
-          set -euo pipefail
-          az load test create \
-            --resource-group "$ALT_RG" \
-            --load-test-resource "$ALT_NAME" \
-            --test-id "$TEST_ID" \
-            --load-test-config-file work/config.yaml
+      # ✅ Usa l'action UFFICIALE pinning una release stabile
+      - name: Azure Load Testing (URL-based)
+        uses: azure/load-testing@v1.1.28   # <-- pin fisso, NON 'v1'
+        with:
+          loadTestResource:   ${{ env.ALT_NAME }}     # camelCase corretto
+          resourceGroup:      ${{ env.ALT_RG }}
+          loadTestConfigFile: work/config.yaml
+        env:
+          API_BASE: ${{ inputs.api_base }}            # valorizza ${API_BASE} nel requests.json
 
-      - name: Avvia test-run
-        run: |
-          set -euo pipefail
-          RUN_ID="run_$(date +%s)"
-          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
-          az load test-run create \
-            --resource-group "$ALT_RG" \
-            --load-test-resource "$ALT_NAME" \
-            --test-id "$TEST_ID" \
-            --test-run-id "$RUN_ID" \
-            --display-name "on-demand via GitHub Actions"
-
-      - name: (Opz) Elenca metriche client-side
-        run: |
-          az load test-run metrics list \
-            --resource-group "$ALT_RG" \
-            --load-test-resource "$ALT_NAME" \
-            --test-run-id "$RUN_ID" \
-            --metric-namespace LoadTestRunMetrics | head -n 50
-
-      - name: (Opz) Scarica risultati grezzi
-        run: |
-          mkdir -p alt-results
-          az load test-run download-files \
-            --resource-group "$ALT_RG" \
-            --load-test-resource "$ALT_NAME" \
-            --test-run-id "$RUN_ID" \
-            --path alt-results
-
-      - name: Carica artifact
+      - name: Pubblica risultati ALT
         uses: actions/upload-artifact@v4
         with:
           name: alt-results
-          path: alt-results
+          path: loadTest
+
+      # 🔁 (OPZIONALE) FALLBACK via CLI se non vuoi l'action
+      # - name: (Fallback) Installa/aggiorna estensione 'load' e crea/avvia test via CLI
+      #   run: |
+      #     set -euo pipefail
+      #     az extension remove -n load || true
+      #     az extension add -n load --upgrade -y
+      #
+      #     # Crea/aggiorna il test con il file YAML (schema v0.1)
+      #     az load test create \
+      #       -g "${{ env.ALT_RG }}" --load-test-resource "${{ env.ALT_NAME }}" \
+      #       --test-id moodtrack-api-url \
+      #       --load-test-config-file work/config.yaml
+      #
+      #     # Assicura l'upload dei file (separato, per sicurezza)
+      #     az load test file upload \
+      #       -g "${{ env.ALT_RG }}" --load-test-resource "${{ env.ALT_NAME }}" \
+      #       --test-id moodtrack-api-url \
+      #       --path work/requests.json
+      #     if [ -f work/users.csv ]; then
+      #       az load test file upload \
+      #         -g "${{ env.ALT_RG }}" --load-test-resource "${{ env.ALT_NAME }}" \
+      #         --test-id moodtrack-api-url \
+      #         --path work/users.csv
+      #     fi
+      #
+      #     RUN_ID="run_$(date +%s)"
+      #     az load test-run create \
+      #       -g "${{ env.ALT_RG }}" --load-test-resource "${{ env.ALT_NAME }}" \
+      #       --test-id moodtrack-api-url \
+      #       --test-run-id "$RUN_ID" \
+      #       --display-name "on-demand" \
+      #       --env "API_BASE=${{ inputs.api_base }}"
