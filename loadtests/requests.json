@@ -1,0 +1,65 @@
+{
+  "version": "1.0",
+  "scenarios": {
+    "apiScenario": {
+      "requests": [
+        {
+          "requestName": "login",
+          "requestType": "URL",
+          "endpoint": "${API_BASE}/auth/login",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": "{ \"username\": \"${USER}\", \"password\": \"${PASS}\" }",
+          "requestBodyFormat": "JSON",
+          "responseVariables": [
+            {
+              "extractorType": "JSONExtractor",
+              "expression": "$.access_token",
+              "variableName": "token"
+            }
+          ]
+        },
+        {
+          "requestName": "post-entry",
+          "requestType": "URL",
+          "endpoint": "${API_BASE}/entries",
+          "method": "POST",
+          "headers": {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer ${token}"
+          },
+          "body": "{ \"title\": \"LoadTest\", \"content\": \"hello sono molto felice\"}",
+          "requestBodyFormat": "JSON"
+        },
+        {
+          "requestName": "get-entries",
+          "requestType": "URL",
+          "endpoint": "${API_BASE}/entries?limit=20",
+          "method": "GET",
+          "headers": {
+            "Authorization": "Bearer ${token}"
+          }
+        }
+      ],
+      "csvDataSetConfigList": [
+        {
+          "fileName": "users.csv",
+          "variableNames": "USER,PASS",
+          "recycleOnEOF": true,
+          "stopThreadOnEOF": false
+        }
+      ]
+    }
+  },
+  "testSetup": [
+    {
+      "scenario": "apiScenario",
+      "virtualUsersPerEngine": 50,
+      "durationInSeconds": 200,
+      "rampUpTimeInSeconds": 100,
+      "loadType": "Linear"
+    }
+  ]
+}

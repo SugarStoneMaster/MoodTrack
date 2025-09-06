@@ -1,0 +1,137 @@
+name: On-demand Load Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: "Base URL (es. http://4.232.242.251)"
+        required: true
+        type: string
+      username:
+        description: "Utente test (match con users.csv se lo usi)"
+        required: false
+        default: "testuser"
+        type: string
+      password:
+        description: "Password test"
+        required: false
+        default: "test123"
+        type: string
+      vus:
+        description: "Virtual users per engine"
+        required: false
+        default: "20"
+        type: number
+      duration_s:
+        description: "Durata (sec)"
+        required: false
+        default: "600"
+        type: number
+      rampup_s:
+        description: "Ramp-up (sec)"
+        required: false
+        default: "120"
+        type: number
+      engines:
+        description: "Engine instances"
+        required: false
+        default: "1"
+        type: number
+      include_chatbot:
+        description: "Aggiungi POST /chatbot/send_message"
+        required: false
+        default: false
+        type: boolean
+      threshold_error_pct:
+        description: "Soglia percentage(error) per failureCriteria"
+        required: false
+        default: "2"
+        type: number
+      threshold_avg_ms:
+        description: "Soglia avg(response_time_ms) per failureCriteria"
+        required: false
+        default: "700"
+        type: number
+      threshold_post_p95_ms:
+        description: "Soglia p95 POST /entries (ms)"
+        required: false
+        default: "700"
+        type: number
+
+jobs:
+  run-alt:
+    runs-on: ubuntu-latest
+    env:
+      # Imposta come repo variables oppure sostituisci qui con i nomi reali
+      ALT_RG:   ${{ vars.ALT_RG || 'rg-moodtrack-dev' }}
+      ALT_NAME: ${{ vars.ALT_NAME || 'alt-moodtrack-dev' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Azure login
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Prepara working dir e patch dinamiche
+        run: |
+          set -euo pipefail
+          mkdir -p work
+          cp loadtests/config.yaml work/config.yaml
+          cp loadtests/requests.json work/requests.json
+          cp loadtests/users.csv work/users.csv || true
+
+          echo "⮑ Patch VU/durata/ramp in requests.json"
+          jq --argjson vus "${{ inputs.vus }}" \
+             --argjson dur "${{ inputs.duration_s }}" \
+             --argjson ramp "${{ inputs.rampup_s }}" \
+             '.testSetup[0].virtualUsersPerEngine=$vus
+              | .testSetup[0].durationInSeconds=$dur
+              | .testSetup[0].rampUpTimeInSeconds=$ramp' \
+             work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
+
+          if [ "${{ inputs.include_chatbot }}" = "true" ]; then
+            echo "⮑ Aggiungo richiesta /chatbot/send_message"
+            jq '.scenarios.apiScenario.requests += [{
+                  "requestName":"chat",
+                  "requestType":"URL",
+                  "endpoint":"${API_BASE}/chatbot/send_message",
+                  "method":"POST",
+                  "headers":{"Content-Type":"application/json","Authorization":"Bearer ${token}"},
+                  "body":"{ \"message\": \"ping\" }",
+                  "requestBodyFormat":"JSON"
+                }]' \
+                work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
+          fi
+
+          echo "⮑ Patch engineInstances e soglie in config.yaml"
+          # engineInstances
+          sed -i -E "s/^engineInstances:\s*[0-9]+/engineInstances: ${{ inputs.engines }}/" work/config.yaml
+          # failureCriteria (error %, avg ms, p95 ms)
+          sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > ${{ inputs.threshold_error_pct }}/" work/config.yaml
+          sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > ${{ inputs.threshold_avg_ms }}/" work/config.yaml
+          sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1${{ inputs.threshold_post_p95_ms }}/" work/config.yaml
+
+          echo "----- config.yaml -----"; cat work/config.yaml
+          echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
+
+      - name: Azure Load Testing (URL-based)
+        uses: azure/load-testing@v1
+        with:
+          loadtestResource: ${{ env.ALT_NAME }}
+          resourceGroup:    ${{ env.ALT_RG }}
+          loadtestConfigFile: work/config.yaml
+
+        env:
+          # Queste env valorizzeranno le ${...} in requests.json
+          API_BASE: ${{ inputs.api_base }}
+          USER:     ${{ inputs.username }}
+          PASS:     ${{ inputs.password }}
+        # Suggerimento: aggiungi timeout del job se vuoi evitare run troppo lunghi
+        # timeout-minutes: 30
+
+      - name: Pubblica risultati ALT
+        uses: actions/upload-artifact@v4
+        with:
+          name: alt-results
+          path: loadTest
