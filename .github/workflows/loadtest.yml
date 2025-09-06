@@ -7,16 +7,6 @@ on:
         description: "Base URL (es. http://4.232.242.251)"
         required: true
         type: string
-      username:
-        description: "Utente test (match con users.csv se lo usi)"
-        required: false
-        default: "testuser"
-        type: string
-      password:
-        description: "Password test"
-        required: false
-        default: "test123"
-        type: string
       vus:
         description: "Virtual users per engine"
         required: false
@@ -62,7 +52,6 @@ jobs:
   run-alt:
     runs-on: ubuntu-latest
     env:
-      # Imposta come repo variables oppure sostituisci qui con i nomi reali
       ALT_RG:   ${{ vars.ALT_RG || 'rg-moodtrack-dev' }}
       ALT_NAME: ${{ vars.ALT_NAME || 'alt-moodtrack-dev' }}
     steps:
@@ -79,7 +68,7 @@ jobs:
           mkdir -p work
           cp loadtests/config.yaml work/config.yaml
           cp loadtests/requests.json work/requests.json
-          cp loadtests/users.csv work/users.csv || true
+          cp loadtests/users.csv work/users.csv
 
           echo "⮑ Patch VU/durata/ramp in requests.json"
           jq --argjson vus "${{ inputs.vus }}" \
@@ -105,9 +94,7 @@ jobs:
           fi
 
           echo "⮑ Patch engineInstances e soglie in config.yaml"
-          # engineInstances
           sed -i -E "s/^engineInstances:\s*[0-9]+/engineInstances: ${{ inputs.engines }}/" work/config.yaml
-          # failureCriteria (error %, avg ms, p95 ms)
           sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > ${{ inputs.threshold_error_pct }}/" work/config.yaml
           sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > ${{ inputs.threshold_avg_ms }}/" work/config.yaml
           sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1${{ inputs.threshold_post_p95_ms }}/" work/config.yaml
@@ -121,14 +108,9 @@ jobs:
           loadtestResource: ${{ env.ALT_NAME }}
           resourceGroup:    ${{ env.ALT_RG }}
           loadtestConfigFile: work/config.yaml
-
         env:
-          # Queste env valorizzeranno le ${...} in requests.json
+          # Variabili env disponibili per le ${...} in requests.json
           API_BASE: ${{ inputs.api_base }}
-          USER:     ${{ inputs.username }}
-          PASS:     ${{ inputs.password }}
-        # Suggerimento: aggiungi timeout del job se vuoi evitare run troppo lunghi
-        # timeout-minutes: 30
 
       - name: Pubblica risultati ALT
         uses: actions/upload-artifact@v4
