@@ -5,22 +5,23 @@ on:
     inputs:
       api_base:
         description: "Base URL (es. http://4.232.242.251)"
+        default: "http://4.232.242.251"
         required: true
         type: string
       vus:
         description: "Virtual users per engine"
         required: false
-        default: "20"
+        default: "50"
         type: number
       duration_s:
         description: "Durata (sec)"
         required: false
-        default: "600"
+        default: "200"
         type: number
       rampup_s:
         description: "Ramp-up (sec)"
         required: false
-        default: "120"
+        default: "100"
         type: number
       engines:
         description: "Engine instances"
