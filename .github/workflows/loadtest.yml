@@ -59,42 +59,58 @@ jobs:
       - name: Install Azure Load Testing CLI extension
         run: |
           set -euo pipefail
-          az version
-          # Estensione corretta (preview)
           az extension add --name load --yes || az extension update --name load
 
-      - name: Prepara working dir + patch dinamiche
+      - name: Prepara working dir e patch dinamiche
         run: |
           set -euo pipefail
           mkdir -p work
-          cp loadtests/requests.json  work/requests.json
-          cp loadtests/users.csv      work/users.csv || true
-          cp loadtests/config.json    work/config.json
+          cp loadtests/config.yaml   work/config.yaml
+          cp loadtests/requests.json work/requests.json
+          cp loadtests/users.csv     work/users.csv || true
 
-          # (opzionale) parametri di carico in requests.json: lasci ali come sono se non vuoi toccarli
-          # jq ...  # <-- puoi mantenere le tue patch se vuoi, non obbligatorie
+          echo "⮑ Patch VU/durata/ramp in requests.json"
+          jq --argjson vus "${{ inputs.vus }}" \
+             --argjson dur "${{ inputs.duration_s }}" \
+             --argjson ramp "${{ inputs.rampup_s }}" \
+             '.testSetup[0].virtualUsersPerEngine=$vus
+              | .testSetup[0].durationInSeconds=$dur
+              | .testSetup[0].rampUpTimeInSeconds=$ramp' \
+             work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
 
-          # Patch ONLY API_BASE dentro config.json
-          jq --arg api "${{ inputs.api_base }}" \
-             '.testModel.environmentVariables = [{"name":"API_BASE","value":$api}]' \
-             work/config.json > work/config.tmp && mv work/config.tmp work/config.json
+          if [ "${{ inputs.include_chatbot }}" = "true" ]; then
+            echo "⮑ Aggiungo richiesta /chatbot/send_message"
+            jq '.scenarios.apiScenario.requests += [{
+                  "requestName":"chat",
+                  "requestType":"URL",
+                  "endpoint":"${API_BASE}/chatbot/send_message",
+                  "method":"POST",
+                  "headers":{"Content-Type":"application/json","Authorization":"Bearer ${token}"},
+                  "body":"{ \"message\": \"ping\" }",
+                  "requestBodyFormat":"JSON"
+                }]' \
+                work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
+          fi
 
-          echo "----- config.json -----"; cat work/config.json
+          echo "⮑ Patch engineInstances e soglie in config.yaml (schema nuovo)"
+          sed -i -E "s/(engineInstances:\s*)[0-9]+/\1${{ inputs.engines }}/" work/config.yaml
+          sed -i -E "s|value: \"http://REPLACE_ME\"|value: \"${{ inputs.api_base }}\"|" work/config.yaml
+          sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > ${{ inputs.threshold_error_pct }}/" work/config.yaml
+          sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > ${{ inputs.threshold_avg_ms }}/" work/config.yaml
+          sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1${{ inputs.threshold_post_p95_ms }}/" work/config.yaml
+
+          echo "----- config.yaml -----"; cat work/config.yaml
           echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
 
-      - name: Install Azure Load Testing CLI extension
-        run: |
-          set -euo pipefail
-          az extension add --name load --yes || az extension update --name load
-
-      - name: Crea/Aggiorna test in ALT (dalla cartella work/)
+      - name: Crea/Aggiorna test in ALT
         run: |
           set -euo pipefail
           az load test create \
             --resource-group "$ALT_RG" \
             --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
-            --load-test-config-file work/config.json
+            --load-test-config-file work/config.yaml \
+            --path work
 
       - name: Avvia test-run
         run: |
@@ -107,3 +123,17 @@ jobs:
             --test-id "$TEST_ID" \
             --test-run-id "$RUN_ID" \
             --display-name "on-demand via GitHub Actions"
+
+      - name: Scarica risultati
+        run: |
+          mkdir -p alt-results
+          az load test-run download-files \
+            --resource-group "$ALT_RG" \
+            --load-test-resource "$ALT_NAME" \
+            --test-run-id "$RUN_ID" \
+            --path alt-results
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: alt-results
+          path: alt-results
