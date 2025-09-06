@@ -36,12 +36,17 @@ jobs:
           mkdir -p work
           cp loadtests/requests.json  work/requests.json
           cp loadtests/users.csv      work/users.csv || true
-          cp loadtests/config.yaml    work/config.yaml
-          # patch del valore API_BASE dentro testModel.environmentVariables
-          sed -i -E 's|value: "http://REPLACE_ME"|value: "${{ inputs.api_base }}"|' work/config.yaml
-          echo "----- config.yaml -----"; cat work/config.yaml
+          cp loadtests/config.json    work/config.json
 
-      - name: Crea/Aggiorna test in ALT (schema con testModel)
+          # patch dell'API_BASE nel JSON v0.1
+          jq --arg api "${{ inputs.api_base }}" \
+             '.env = [{"name":"API_BASE","value":$api}]' \
+             work/config.json > work/config.tmp && mv work/config.tmp work/config.json
+
+          echo "----- config.json -----"; cat work/config.json
+          echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
+
+      - name: Crea/Aggiorna test in ALT (usando JSON v0.1)
         working-directory: work
         run: |
           set -euo pipefail
@@ -49,7 +54,7 @@ jobs:
             --resource-group "$ALT_RG" \
             --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
-            --load-test-config-file config.yaml
+            --load-test-config-file config.json
 
       - name: Avvia test-run
         working-directory: work
