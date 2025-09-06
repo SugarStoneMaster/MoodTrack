@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, status, Security, HTTPException
+from fastapi import APIRouter, Depends, status, Security, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.api.queueing import enqueue_entry
 from app.core.deps import get_current_user, require_scope
 from app.db import get_db
 from app.db.models import Entry
-from app.schemas.entry import EntryCreate, EntryOut
+from app.schemas.entry import EntryCreate, EntryOut, PaginatedEntries
 
 router = APIRouter()
 
@@ -26,21 +26,27 @@ def create_entry(
     enqueue_entry(e.id)
     return e
 
-@router.get(
-    "/entries",
-    response_model=list[EntryOut],
-)
+
+@router.get("/entries", response_model=PaginatedEntries)
 def list_entries(
     user = Security(get_current_user, scopes=["entries:read"]),
     db: Session = Depends(get_db),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
 ):
-    return (
-        db.query(Entry)
-        .filter(Entry.user_id == user["username"])
-        .order_by(Entry.id.desc())
-        .limit(50)
-        .all()
+    q = db.query(Entry).filter(Entry.user_id == user["username"])
+    total = q.count()
+    items = (
+        q.order_by(Entry.id.desc())
+         .offset(skip)
+         .limit(limit)
+         .all()
     )
+    return {
+        "total": total,
+        "count": len(items),   # numero entries ritornate in questa pagina
+        "items": items,
+    }
 
 
 @router.get("/entries/{entry_id}", response_model=EntryOut)

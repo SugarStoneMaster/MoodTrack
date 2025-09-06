@@ -13,3 +13,9 @@ class EntryOut(BaseModel):
     content: str
     mood: int | None
     created_at: datetime
+
+
+class PaginatedEntries(BaseModel):
+    total: int          # totale entries per quell’utente
+    count: int          # numero di elementi in questa pagina
+    items: list[EntryOut]

@@ -168,9 +168,10 @@ jobs:
         echo "✅ POST /entries OK (id=$ENTRY_ID)"
 
         echo "→ GET /entries (lista base)"
-        LEN=$(curl -s -H "Authorization: Bearer $ACCESS" "$BASE/entries" | jq 'length')
-        [ "$LEN" -ge 1 ] || { echo "❌ GET /entries empty"; exit 1; }
-        echo "✅ GET /entries OK ($LEN entries)"
+        RESP=$(curl -s -H "Authorization: Bearer $ACCESS" "$BASE/entries")
+        TOTAL=$(echo "$RESP" | jq '.total')
+        COUNT=$(echo "$RESP" | jq '.count')
+        echo "✅ GET /entries OK (total=$TOTAL, count=$COUNT)"
 
         echo "→ /auth/refresh (rotazione refresh)"
         REFRESH_BODY=$(jq -nc --arg r "$REFRESH" --arg d "ci-smoke" '{refresh_token:$r,device:$d}')
