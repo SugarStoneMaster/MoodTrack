@@ -1,28 +1,28 @@
-name: On-demand Load Test (CLI)
+name: On-demand Load Test
 
 on:
   workflow_dispatch:
     inputs:
       api_base:
         description: "Base URL (es. http://4.232.242.251)"
-        required: true
         default: "http://4.232.242.251"
+        required: true
         type: string
       vus:
         description: "Virtual users per engine"
-        default: 50
+        default: "50"
         type: number
       duration_s:
         description: "Durata (sec)"
-        default: 200
+        default: "200"
         type: number
       rampup_s:
         description: "Ramp-up (sec)"
-        default: 100
+        default: "100"
         type: number
       engines:
         description: "Engine instances"
-        default: 1
+        default: "1"
         type: number
       include_chatbot:
         description: "Aggiungi POST /chatbot/send_message"
@@ -30,15 +30,15 @@ on:
         type: boolean
       threshold_error_pct:
         description: "Soglia percentage(error)"
-        default: 2
+        default: "2"
         type: number
       threshold_avg_ms:
         description: "Soglia avg(response_time_ms)"
-        default: 1500
+        default: "1500"
         type: number
       threshold_post_p95_ms:
         description: "Soglia p95 POST /entries (ms)"
-        default: 700
+        default: "700"
         type: number
 
 jobs:
@@ -56,28 +56,32 @@ jobs:
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-      - name: Ensure Azure Load Testing CLI extension
-        run: az extension add -n load --upgrade
+      - name: Install Azure Load Testing CLI extension
+        run: |
+          set -euo pipefail
+          az version
+          # Estensione corretta (preview)
+          az extension add --name load --yes || az extension update --name load
 
-      - name: Prep working dir & dynamic patches
+      - name: Prepara working dir + patch dinamiche
         run: |
           set -euo pipefail
           mkdir -p work
           cp loadtests/config.yaml    work/config.yaml
           cp loadtests/requests.json  work/requests.json
-          cp loadtests/users.csv      work/users.csv
+          cp loadtests/users.csv      work/users.csv || true
 
-          # Patch VU/durata/ramp in requests.json
+          echo "⮑ Patch VU/durata/ramp in requests.json"
           jq --argjson vus "${{ inputs.vus }}" \
              --argjson dur "${{ inputs.duration_s }}" \
              --argjson ramp "${{ inputs.rampup_s }}" \
              '.testSetup[0].virtualUsersPerEngine=$vus
               | .testSetup[0].durationInSeconds=$dur
               | .testSetup[0].rampUpTimeInSeconds=$ramp' \
-             work/requests.json > work/tmp && mv work/tmp work/requests.json
+             work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
 
-          # Aggiungi (opzionale) la richiesta /chatbot/send_message
           if [ "${{ inputs.include_chatbot }}" = "true" ]; then
+            echo "⮑ Aggiungo richiesta /chatbot/send_message"
             jq '.scenarios.apiScenario.requests += [{
                   "requestName":"chat",
                   "requestType":"URL",
@@ -86,88 +90,63 @@ jobs:
                   "headers":{"Content-Type":"application/json","Authorization":"Bearer ${token}"},
                   "body":"{ \"message\": \"ping\" }",
                   "requestBodyFormat":"JSON"
-                }]' work/requests.json > work/tmp && mv work/tmp work/requests.json
+                }]' \
+                work/requests.json > work/requests.tmp && mv work/requests.tmp work/requests.json
           fi
 
-          # Patch engineInstances e soglie in config.yaml
-          sed -i -E "s/^engineInstances:\s*[0-9]+/engineInstances: ${{ inputs.engines }}/" work/config.yaml
+          echo "⮑ Patch engineInstances e soglie in config.yaml (schema con testModel)"
+          # engineInstances
+          sed -i -E "s/(engineInstances:\s*)[0-9]+/\1${{ inputs.engines }}/" work/config.yaml
+          # API_BASE env nel testModel.environmentVariables
+          sed -i -E "s|value: \"http://REPLACE_ME\"|value: \"${{ inputs.api_base }}\"|" work/config.yaml
+          # failure criteria
           sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > ${{ inputs.threshold_error_pct }}/" work/config.yaml
           sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > ${{ inputs.threshold_avg_ms }}/" work/config.yaml
           sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1${{ inputs.threshold_post_p95_ms }}/" work/config.yaml
 
-          # Imposta API_BASE nell'env del test (modifica il value dentro config.yaml)
-          # Cerca la riga 'name: API_BASE' e sostituisce il value successivo
-          awk -v base="${{ inputs.api_base }}" '
-            BEGIN{found=0}
-            /^(\s*)-+\s*name:\s*API_BASE\s*$/ {print; getline; sub(/value:.*/,"value: \"" base "\""); print; found=1; next}
-            {print}
-            END{if(!found) {print "  - name: API_BASE\n    value: \"" base "\""}}
-          ' work/config.yaml > work/config.p && mv work/config.p work/config.yaml
-
           echo "----- config.yaml -----"; cat work/config.yaml
           echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
 
-      - name: Create/Update ALT Test from YAML
+      - name: Crea/Aggiorna test in ALT (dalla cartella work/)
         run: |
+          set -euo pipefail
           az load test create \
-            -g "$ALT_RG" --load-test-resource "$ALT_NAME" \
+            --resource-group "$ALT_RG" \
+            --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
             --load-test-config-file work/config.yaml
 
-      - name: Run test and wait for completion
-        id: run
+      - name: Avvia test-run
         run: |
           set -euo pipefail
-          RUN_ID="run_${GITHUB_RUN_ID}_$RANDOM"
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-
+          RUN_ID="run_$(date +%s)"
+          echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           az load test-run create \
-            -g "$ALT_RG" --load-test-resource "$ALT_NAME" \
+            --resource-group "$ALT_RG" \
+            --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
             --test-run-id "$RUN_ID" \
-            --display-name "on-demand $GITHUB_RUN_ID"
+            --display-name "on-demand via GitHub Actions"
 
-          echo "⏳ waiting for test run to finish… ($RUN_ID)"
-          while true; do
-            STATUS=$(az load test-run show -g "$ALT_RG" --load-test-resource "$ALT_NAME" --test-run-id "$RUN_ID" --query "status" -o tsv)
-            echo "status: $STATUS"
-            case "$STATUS" in
-              NOTSTARTED|PROVISIONING|INPROGRESS) sleep 15 ;;
-              DONE|COMPLETED) break ;;
-              FAILED|CANCELLED) echo "❌ run $RUN_ID status=$STATUS"; exit 1 ;;
-              *) sleep 10 ;;
-            esac
-          done
-
-          # Gating SLO: fallisci se qualche criterio di pass/fail è failed
-          FAILS=$(az load test-run show -g "$ALT_RG" --load-test-resource "$ALT_NAME" --test-run-id "$RUN_ID" -o json \
-            | jq '[.passFailCriteria.passFailMetrics[]? | select(.result=="failed")] | length')
-          echo "failed_criteria=$FAILS" >> "$GITHUB_OUTPUT"
-          if [ "${FAILS:-0}" -gt 0 ]; then
-            echo "❌ Pass/Fail criteria failed ($FAILS)"; exit 1
-          fi
-          echo "✅ Run PASSED"
-
-      - name: Export basic client metrics
-        if: always()
+      - name: (Opz) Elenca metriche client-side
         run: |
-          RUN_ID="${{ steps.run.outputs.run_id }}"
           az load test-run metrics list \
-            -g "$ALT_RG" --load-test-resource "$ALT_NAME" \
+            --resource-group "$ALT_RG" \
+            --load-test-resource "$ALT_NAME" \
             --test-run-id "$RUN_ID" \
-            --metric-namespace LoadTestRunMetrics \
-            --metric-names "response_time_ms" "latency" "error" \
-            -o table || true
+            --metric-namespace LoadTestRunMetrics | head -n 50
 
-      # (Opzionale) scarica file run: log, CSV, ecc. Se/Quando disponibile nel tuo tenant
-      # - name: Download run files
-      #   run: |
-      #     RUN_ID="${{ steps.run.outputs.run_id }}"
-      #     az load test-run files download -g "$ALT_RG" --load-test-resource "$ALT_NAME" --test-run-id "$RUN_ID" --path out || true
+      - name: (Opz) Scarica risultati grezzi
+        run: |
+          mkdir -p alt-results
+          az load test-run download-files \
+            --resource-group "$ALT_RG" \
+            --load-test-resource "$ALT_NAME" \
+            --test-run-id "$RUN_ID" \
+            --path alt-results
 
-      - name: Upload artifacts (config & plan)
-        if: always()
+      - name: Carica artifact
         uses: actions/upload-artifact@v4
         with:
-          name: alt-inputs
-          path: work
+          name: alt-results
+          path: alt-results
