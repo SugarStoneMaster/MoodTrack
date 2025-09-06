@@ -103,16 +103,17 @@ jobs:
           echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
 
       - name: Crea/Aggiorna test in ALT
+        working-directory: work
         run: |
           set -euo pipefail
           az load test create \
             --resource-group "$ALT_RG" \
             --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
-            --load-test-config-file work/config.yaml \
-            --path work
+            --load-test-config-file config.yaml
 
       - name: Avvia test-run
+        working-directory: work
         run: |
           set -euo pipefail
           RUN_ID="run_$(date +%s)"
