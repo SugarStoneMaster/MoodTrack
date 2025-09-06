@@ -8,38 +8,6 @@ on:
         default: "http://4.232.242.251"
         required: true
         type: string
-      vus:
-        description: "Virtual users per engine"
-        default: "50"
-        type: number
-      duration_s:
-        description: "Durata (sec)"
-        default: "200"
-        type: number
-      rampup_s:
-        description: "Ramp-up (sec)"
-        default: "100"
-        type: number
-      engines:
-        description: "Engine instances"
-        default: "1"
-        type: number
-      include_chatbot:
-        description: "Aggiungi POST /chatbot/send_message"
-        default: false
-        type: boolean
-      threshold_error_pct:
-        description: "Soglia percentage(error)"
-        default: "2"
-        type: number
-      threshold_avg_ms:
-        description: "Soglia avg(response_time_ms)"
-        default: "1500"
-        type: number
-      threshold_post_p95_ms:
-        description: "Soglia p95 POST /entries (ms)"
-        default: "700"
-        type: number
 
 jobs:
   run-alt:
@@ -62,19 +30,16 @@ jobs:
           az extension add --name load --yes || az extension update --name load
           az extension show --name load
 
-      - name: Prepara working dir (solo patch API_BASE)
+      - name: Prepara working dir (patch solo API_BASE)
         run: |
           set -euo pipefail
           mkdir -p work
           cp loadtests/requests.json  work/requests.json
           cp loadtests/users.csv      work/users.csv || true
-          cp loadtests/config.json    work/config.json
-          # patch solo l’endpoint base nel config.json
-          jq --arg api "${{ inputs.api_base }}" \
-             '.testModel.environmentVariables = [{"name":"API_BASE","value":$api}]' \
-             work/config.json > work/config.tmp && mv work/config.tmp work/config.json
-          echo "----- config.json -----"; cat work/config.json
-          echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
+          cp loadtests/config.yaml    work/config.yaml
+          # patch del valore API_BASE dentro testModel.environmentVariables
+          sed -i -E 's|value: "http://REPLACE_ME"|value: "${{ inputs.api_base }}"|' work/config.yaml
+          echo "----- config.yaml -----"; cat work/config.yaml
 
       - name: Crea/Aggiorna test in ALT (schema con testModel)
         working-directory: work
@@ -84,7 +49,7 @@ jobs:
             --resource-group "$ALT_RG" \
             --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
-            --load-test-config-file config.json
+            --load-test-config-file config.yaml
 
       - name: Avvia test-run
         working-directory: work
