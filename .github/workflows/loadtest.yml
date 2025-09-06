@@ -103,14 +103,14 @@ jobs:
           echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
 
       - name: Azure Load Testing (URL-based)
-        uses: azure/load-testing@v1
+        uses: azure/load-testing@v1   # oppure @v1
         with:
-          loadtestResource: ${{ env.ALT_NAME }}
-          resourceGroup:    ${{ env.ALT_RG }}
-          loadtestConfigFile: work/config.yaml
+          loadTestResource: ${{ env.ALT_NAME }}   # <== case corretto
+          resourceGroup: ${{ env.ALT_RG }}
+          loadTestConfigFile: work/config.yaml
         env:
-          # Variabili env disponibili per le ${...} in requests.json
-          API_BASE: ${{ inputs.api_base }}
+          API_BASE: ${{ inputs.api_base }}        # variabili usate in requests.json
+
 
       - name: Pubblica risultati ALT
         uses: actions/upload-artifact@v4
