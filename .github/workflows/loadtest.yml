@@ -45,8 +45,6 @@ jobs:
       ALT_NAME: ${{ vars.ALT_NAME || 'alt-moodtrack-dev' }}
       TEST_ID:  moodtrack-api-url
     steps:
-      - uses: actions/checkout@v4
-
       - name: Azure login
         uses: azure/login@v2
         with:
@@ -56,77 +54,25 @@ jobs:
         run: |
           az extension add --name load --yes || az extension update --name load
 
-      - name: Prepara working dir e patch dinamiche
-        env:
-          API_BASE: ${{ inputs.api_base }}
-          VUS:      ${{ inputs.vus }}
-          DUR:      ${{ inputs.duration_s }}
-          RAMP:     ${{ inputs.rampup_s }}
-          ENGINES:  ${{ inputs.engines }}
-          ERR_PCT:  ${{ inputs.threshold_error_pct }}
-          AVG_MS:   ${{ inputs.threshold_avg_ms }}
-          P95_MS:   ${{ inputs.threshold_post_p95_ms }}
-        run: |
-          set -euo pipefail
-          mkdir -p work
-          cp loadtests/requests.json work/requests.json
-          cp loadtests/users.csv     work/users.csv || true
-          cp loadtests/config.yaml   work/config.yaml
-
-          # Patch requests.json (VU/durata/rampup)
-          jq --argjson vus "$VUS" --argjson dur "$DUR" --argjson ramp "$RAMP" \
-             '.testSetup[0].virtualUsersPerEngine=$vus
-              | .testSetup[0].durationInSeconds=$dur
-              | .testSetup[0].rampUpTimeInSeconds=$ramp' \
-             work/requests.json > work/tmp && mv work/tmp work/requests.json
-
-          # Patch config.yaml (engineInstances, thresholds, API_BASE)
-          sed -i -E "s/(engineInstances:\s*)[0-9]+/engineInstances: $ENGINES/" work/config.yaml
-          sed -i -E "s|value: \"http://REPLACE_ME\"|value: \"$API_BASE\"|" work/config.yaml
-          sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > $ERR_PCT/" work/config.yaml
-          sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > $AVG_MS/" work/config.yaml
-          sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1$P95_MS/" work/config.yaml
-
-          echo "----- config.yaml -----"
-          cat work/config.yaml
-          echo "----- requests.json ---"
-          jq '.testSetup' work/requests.json
-
-      - name: Crea o aggiorna test in ALT
-        working-directory: work
-        run: |
-          set -euo pipefail
-          # Se il test esiste, fai update, altrimenti create
-          if az load test show \
-               --resource-group "$ALT_RG" \
-               --load-test-resource "$ALT_NAME" \
-               --test-id "$TEST_ID" > /dev/null 2>&1; then
-            echo "ℹ️ Test $TEST_ID già esiste, aggiorno…"
-            az load test update \
-              --resource-group "$ALT_RG" \
-              --load-test-resource "$ALT_NAME" \
-              --test-id "$TEST_ID" \
-              --load-test-config-file config.yaml
-          else
-            echo "ℹ️ Creo nuovo test $TEST_ID…"
-            az load test create \
-              --resource-group "$ALT_RG" \
-              --load-test-resource "$ALT_NAME" \
-              --test-id "$TEST_ID" \
-              --load-test-config-file config.yaml
-          fi
-          
-
-      - name: Avvia test-run
+      - name: Avvia test-run con parametri runtime
         run: |
           RUN_ID="run_$(date +%s)"
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
+
           az load test-run create \
             --resource-group "$ALT_RG" \
             --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
             --test-run-id "$RUN_ID" \
-            --display-name "on-demand via GitHub Actions"
+            --display-name "on-demand via GitHub Actions" \
+            --env API_BASE=${{ inputs.api_base }} \
+            --env VUS=${{ inputs.vus }} \
+            --env DURATION=${{ inputs.duration_s }} \
+            --env RAMPUP=${{ inputs.rampup_s }} \
+            --env ENGINES=${{ inputs.engines }} \
+            --env THRESHOLD_ERROR_PCT=${{ inputs.threshold_error_pct }} \
+            --env THRESHOLD_AVG_MS=${{ inputs.threshold_avg_ms }} \
+            --env THRESHOLD_POST_P95_MS=${{ inputs.threshold_post_p95_ms }}
 
       - name: Scarica risultati
         run: |
