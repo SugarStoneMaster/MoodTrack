@@ -92,14 +92,30 @@ jobs:
           echo "----- requests.json ---"
           jq '.testSetup' work/requests.json
 
-      - name: Crea/Aggiorna test in ALT
+      - name: Crea o aggiorna test in ALT
         working-directory: work
         run: |
-          az load test create \
-            --resource-group "$ALT_RG" \
-            --load-test-resource "$ALT_NAME" \
-            --test-id "$TEST_ID" \
-            --load-test-config-file config.yaml
+          set -euo pipefail
+          # Se il test esiste, fai update, altrimenti create
+          if az load test show \
+               --resource-group "$ALT_RG" \
+               --load-test-resource "$ALT_NAME" \
+               --test-id "$TEST_ID" > /dev/null 2>&1; then
+            echo "ℹ️ Test $TEST_ID già esiste, aggiorno…"
+            az load test update \
+              --resource-group "$ALT_RG" \
+              --load-test-resource "$ALT_NAME" \
+              --test-id "$TEST_ID" \
+              --load-test-config-file config.yaml
+          else
+            echo "ℹ️ Creo nuovo test $TEST_ID…"
+            az load test create \
+              --resource-group "$ALT_RG" \
+              --load-test-resource "$ALT_NAME" \
+              --test-id "$TEST_ID" \
+              --load-test-config-file config.yaml
+          fi
+          
 
       - name: Avvia test-run
         run: |
