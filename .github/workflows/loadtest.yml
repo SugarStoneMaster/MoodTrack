@@ -8,6 +8,34 @@ on:
         default: "http://4.232.242.251"
         required: true
         type: string
+      vus:
+        description: "Virtual users per engine"
+        default: "50"
+        type: number
+      duration_s:
+        description: "Durata (sec)"
+        default: "200"
+        type: number
+      rampup_s:
+        description: "Ramp-up (sec)"
+        default: "100"
+        type: number
+      engines:
+        description: "Engine instances"
+        default: "1"
+        type: number
+      threshold_error_pct:
+        description: "Soglia percentage(error)"
+        default: "2"
+        type: number
+      threshold_avg_ms:
+        description: "Soglia avg(response_time_ms)"
+        default: "1500"
+        type: number
+      threshold_post_p95_ms:
+        description: "Soglia p95 POST /entries (ms)"
+        default: "700"
+        type: number
 
 jobs:
   run-alt:
@@ -26,40 +54,55 @@ jobs:
 
       - name: Install Azure Load Testing CLI extension
         run: |
-          set -euo pipefail
           az extension add --name load --yes || az extension update --name load
-          az extension show --name load
 
-      - name: Prepara working dir (patch solo API_BASE)
+      - name: Prepara working dir e patch dinamiche
+        env:
+          API_BASE: ${{ inputs.api_base }}
+          VUS:      ${{ inputs.vus }}
+          DUR:      ${{ inputs.duration_s }}
+          RAMP:     ${{ inputs.rampup_s }}
+          ENGINES:  ${{ inputs.engines }}
+          ERR_PCT:  ${{ inputs.threshold_error_pct }}
+          AVG_MS:   ${{ inputs.threshold_avg_ms }}
+          P95_MS:   ${{ inputs.threshold_post_p95_ms }}
         run: |
           set -euo pipefail
           mkdir -p work
-          cp loadtests/requests.json  work/requests.json
-          cp loadtests/users.csv      work/users.csv || true
-          cp loadtests/config.json    work/config.json
+          cp loadtests/requests.json work/requests.json
+          cp loadtests/users.csv     work/users.csv || true
+          cp loadtests/config.yaml   work/config.yaml
 
-          # patch dell'API_BASE nel JSON v0.1
-          jq --arg api "${{ inputs.api_base }}" \
-             '.env = [{"name":"API_BASE","value":$api}]' \
-             work/config.json > work/config.tmp && mv work/config.tmp work/config.json
+          # Patch requests.json (VU/durata/rampup)
+          jq --argjson vus "$VUS" --argjson dur "$DUR" --argjson ramp "$RAMP" \
+             '.testSetup[0].virtualUsersPerEngine=$vus
+              | .testSetup[0].durationInSeconds=$dur
+              | .testSetup[0].rampUpTimeInSeconds=$ramp' \
+             work/requests.json > work/tmp && mv work/tmp work/requests.json
 
-          echo "----- config.json -----"; cat work/config.json
-          echo "----- requests.json ---"; jq '.testSetup, .scenarios.apiScenario.requests[].requestName' work/requests.json
+          # Patch config.yaml (engineInstances, thresholds, API_BASE)
+          sed -i -E "s/(engineInstances:\s*)[0-9]+/engineInstances: $ENGINES/" work/config.yaml
+          sed -i -E "s|value: \"http://REPLACE_ME\"|value: \"$API_BASE\"|" work/config.yaml
+          sed -i -E "s/percentage\(error\) > [0-9]+/percentage(error) > $ERR_PCT/" work/config.yaml
+          sed -i -E "s/avg\(response_time_ms\) > [0-9]+/avg(response_time_ms) > $AVG_MS/" work/config.yaml
+          sed -i -E "s/(post-entry: p95\(latency\) > )([0-9]+)/\1$P95_MS/" work/config.yaml
 
-      - name: Crea/Aggiorna test in ALT (usando JSON v0.1)
+          echo "----- config.yaml -----"
+          cat work/config.yaml
+          echo "----- requests.json ---"
+          jq '.testSetup' work/requests.json
+
+      - name: Crea/Aggiorna test in ALT
         working-directory: work
         run: |
-          set -euo pipefail
           az load test create \
             --resource-group "$ALT_RG" \
             --load-test-resource "$ALT_NAME" \
             --test-id "$TEST_ID" \
-            --load-test-config-file config.json
+            --load-test-config-file config.yaml
 
       - name: Avvia test-run
-        working-directory: work
         run: |
-          set -euo pipefail
           RUN_ID="run_$(date +%s)"
           echo "RUN_ID=$RUN_ID" >> $GITHUB_ENV
           az load test-run create \
