@@ -20,7 +20,7 @@ jobs:
       NAMESPACE:      moodtrack
       RELEASE_NAME:   moodtrack-api
       SERVICE_NAME:   moodtrack-api-svc   # fissato nel chart
-      TEST_USER:      testuser
+      TEST_USER:      testuser1
       TEST_PASS:      test123
 
     steps:
