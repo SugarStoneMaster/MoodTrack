@@ -18,7 +18,8 @@ jobs:
       RESOURCE_GROUP: rg-moodtrack-dev
       CLUSTER_NAME:   aks-moodtrack-dev
       NAMESPACE:      moodtrack
-      SERVICE_NAME:   moodtrack-api-svc
+      RELEASE_NAME:   moodtrack-api
+      SERVICE_NAME:   moodtrack-api-svc   # fissato nel chart
       TEST_USER:      testuser
       TEST_PASS:      test123
 
@@ -66,17 +67,17 @@ jobs:
           --from-literal=ALGORITHM='${{ secrets.ALGORITHM }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- SQL connection string (manifest: secret sql-conn / key url) ---
+        # --- SQL connection string ---
         kubectl create secret generic sql-conn -n "$NAMESPACE" \
           --from-literal=url='${{ secrets.SQL_URL }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- JOB KEY per endpoint /internal/* ---
+        # --- JOB KEY ---
         kubectl create secret generic job-key -n "$NAMESPACE" \
           --from-literal=key='${{ secrets.JOB_KEY }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- Azure OpenAI (Assistant) ---
+        # --- Azure OpenAI ---
         kubectl create secret generic aoai -n "$NAMESPACE" \
           --from-literal=endpoint='${{ secrets.AZURE_OPENAI_ENDPOINT }}' \
           --from-literal=api_key='${{ secrets.AZURE_OPENAI_API_KEY }}' \
@@ -84,32 +85,39 @@ jobs:
           --from-literal=assistant_id='${{ secrets.AZURE_OPENAI_ASSISTANT_ID }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- Storage connection + sentiment queue ---
+        # --- Storage + sentiment queue ---
         kubectl create secret generic storage-conn -n "$NAMESPACE" \
           --from-literal=conn='${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}' \
           --from-literal=sentiment_queue='${{ secrets.SENTIMENT_QUEUE }}' \
           --dry-run=client -o yaml | kubectl apply -f -
         
-        # --- App Configuration (feature flags) ---
+        # --- App Configuration ---
         kubectl create secret generic appconfig-conn -n "$NAMESPACE" \
           --from-literal=connection_string='${{ secrets.APP_CONFIG_CONNECTION_STRING }}' \
           --dry-run=client -o yaml | kubectl apply -f -
         
-        # --- Application Insights (connection string) ---
+        # --- Application Insights ---
         kubectl create secret generic appinsights -n "$NAMESPACE" \
           --from-literal=connection_string='${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}' \
           --dry-run=client -o yaml | kubectl apply -f -
-        
 
-    # 7) deploy (sed + apply + rollout)
-    - name: Deploy to AKS
+    # 7) setup Helm
+    - name: Setup Helm
+      uses: azure/setup-helm@v4
+
+    # 8) deploy con Helm (sostituisce sed+kubectl apply)
+    - name: Deploy with Helm
       run: |
-        sed -i "s|IMAGE_PLACEHOLDER|${IMAGE}|g" infra/deployment.yaml
-        kubectl apply -f infra/deployment.yaml -n "$NAMESPACE"
-        kubectl apply -f infra/service.yaml -n "$NAMESPACE"
-        kubectl rollout status deployment/moodtrack-api -n "$NAMESPACE" --timeout=300s
+        set -euo pipefail
+        helm upgrade --install "$RELEASE_NAME" ./infra/helm \
+          --namespace "$NAMESPACE" --create-namespace \
+          --set image.repository="${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-api" \
+          --set image.tag="${{ github.sha }}" \
+          -f infra/helm/values-dev.yaml
+        # rollout del Deployment chiamato come la release
+        kubectl rollout status deploy/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=300s
 
-    # 8) smoke-test API + chatbot + mood async
+    # 9) smoke-test API + chatbot + mood async (INVARIATO)
     - name: Smoke tests
       run: |
         set -euo pipefail
@@ -156,7 +164,6 @@ jobs:
         ENTRY_ID=$(echo "$CREATE_JSON" | jq -r '.id // empty')
         if [ -z "$ENTRY_ID" ] || [ "$ENTRY_ID" = "null" ]; then
           echo "ℹ️ POST /entries non ha restituito id; provo dalla lista"
-          # Se disponibile, prova a filtrare per titolo; altrimenti prendi il max id
           ENTRY_ID=$(curl -sS -H "Authorization: Bearer $ACCESS" "$BASE/entries" \
             | jq -r 'map(select(.title=="smoke test title")) | max_by(.id) | .id // empty')
           if [ -z "$ENTRY_ID" ] || [ "$ENTRY_ID" = "null" ]; then

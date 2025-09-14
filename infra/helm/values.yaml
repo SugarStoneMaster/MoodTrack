@@ -1,0 +1,44 @@
+replicaCount: 1
+
+image:
+  repository: ""            # es: youracr.azurecr.io/moodtrack-api
+  tag: ""                   # es: sha della build
+  pullPolicy: IfNotPresent
+  pullSecrets: []           # es: [acr-pull] se NON hai ACR attach ad AKS
+
+service:
+  type: LoadBalancer
+  port: 80
+  targetPort: 8080
+
+env:
+  APP_ENV: "dev"
+  APP_CONFIG_LABEL: "dev"
+
+probes:
+  readiness:
+    path: /health
+    port: 8080
+    initialDelaySeconds: 3
+    periodSeconds: 5
+  liveness:
+    path: /health
+    port: 8080
+    initialDelaySeconds: 15
+    periodSeconds: 10
+
+resources: {}               # es: { requests: { cpu: "100m", memory: "256Mi" }, limits: { cpu: "500m", memory: "512Mi" } }
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Nomi dei Secret già presenti nel cluster (li crei in CI come fai ora)
+secrets:
+  api:          api-secrets
+  sql:          sql-conn
+  job:          job-key
+  aoai:         aoai
+  storage:      storage-conn
+  appconfig:    appconfig-conn
+  appinsights:  appinsights
