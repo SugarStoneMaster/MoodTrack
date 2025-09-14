@@ -1,0 +1,6 @@
+env: { APP_ENV: "prod", APP_CONFIG_LABEL: "prod" }
+service: { type: LoadBalancer } # o ClusterIP + Ingress
+replicaCount: 2
+resources:
+  requests: { cpu: "250m", memory: "512Mi" }
+  limits:   { cpu: "1", memory: "1Gi" }

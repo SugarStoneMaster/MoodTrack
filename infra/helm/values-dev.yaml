@@ -1,0 +1,3 @@
+env: { APP_ENV: "dev", APP_CONFIG_LABEL: "dev" }
+service: { type: LoadBalancer }
+replicaCount: 1
