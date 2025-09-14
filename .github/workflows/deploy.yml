@@ -24,10 +24,8 @@ jobs:
       TEST_PASS:      test123
 
     steps:
-    # 1) codice
     - uses: actions/checkout@v4
 
-    # 2) build & push
     - name: Build & push image
       run: |
         docker build -t "$IMAGE" .
@@ -36,12 +34,10 @@ jobs:
             -u ${{ secrets.ACR_USERNAME }} --password-stdin
         docker push "$IMAGE"
 
-    # 3) login Azure
     - uses: azure/login@v2
       with:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    # 4) avvio cluster se fermo
     - name: Ensure AKS running
       run: |
         STATE=$(az aks show -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --query powerState.code -o tsv)
@@ -50,7 +46,6 @@ jobs:
           az aks wait  -g "$RESOURCE_GROUP" -n "$CLUSTER_NAME" --created
         fi
 
-    # 5) kubectl context
     - uses: azure/aks-set-context@v3
       with:
         resource-group:    ${{ env.RESOURCE_GROUP }}
@@ -58,26 +53,21 @@ jobs:
         subscription-id:   ${{ secrets.AZURE_SUBSCRIPTION_ID }}
         use-admin-credentials: true
 
-    # 6) (ri)crea i Secret applicativi
     - name: Apply K8s secrets
       run: |
-        # --- JWT (SECRET_KEY + ALGORITHM) ---
         kubectl create secret generic api-secrets -n "$NAMESPACE" \
           --from-literal=SECRET_KEY='${{ secrets.SECRET_KEY }}' \
           --from-literal=ALGORITHM='${{ secrets.ALGORITHM }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- SQL connection string ---
         kubectl create secret generic sql-conn -n "$NAMESPACE" \
           --from-literal=url='${{ secrets.SQL_URL }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- JOB KEY ---
         kubectl create secret generic job-key -n "$NAMESPACE" \
           --from-literal=key='${{ secrets.JOB_KEY }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- Azure OpenAI ---
         kubectl create secret generic aoai -n "$NAMESPACE" \
           --from-literal=endpoint='${{ secrets.AZURE_OPENAI_ENDPOINT }}' \
           --from-literal=api_key='${{ secrets.AZURE_OPENAI_API_KEY }}' \
@@ -85,27 +75,41 @@ jobs:
           --from-literal=assistant_id='${{ secrets.AZURE_OPENAI_ASSISTANT_ID }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-        # --- Storage + sentiment queue ---
         kubectl create secret generic storage-conn -n "$NAMESPACE" \
           --from-literal=conn='${{ secrets.AZURE_STORAGE_CONNECTION_STRING }}' \
           --from-literal=sentiment_queue='${{ secrets.SENTIMENT_QUEUE }}' \
           --dry-run=client -o yaml | kubectl apply -f -
         
-        # --- App Configuration ---
         kubectl create secret generic appconfig-conn -n "$NAMESPACE" \
           --from-literal=connection_string='${{ secrets.APP_CONFIG_CONNECTION_STRING }}' \
           --dry-run=client -o yaml | kubectl apply -f -
         
-        # --- Application Insights ---
         kubectl create secret generic appinsights -n "$NAMESPACE" \
           --from-literal=connection_string='${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}' \
           --dry-run=client -o yaml | kubectl apply -f -
 
-    # 7) setup Helm
+    # 🔧 NOVITÀ: adotta oggetti esistenti (Service/Deployment) sotto questa release Helm
+    - name: Adopt existing K8s objects into Helm release (no-downtime)
+      run: |
+        set -euo pipefail
+        adopt() {
+          local KIND="$1" NAME="$2"
+          if kubectl get "$KIND" "$NAME" -n "$NAMESPACE" >/dev/null 2>&1; then
+            echo "Adopting $KIND/$NAME into Helm release $RELEASE_NAME..."
+            kubectl label "$KIND" "$NAME" -n "$NAMESPACE" app.kubernetes.io/managed-by=Helm --overwrite
+            kubectl annotate "$KIND" "$NAME" -n "$NAMESPACE" meta.helm.sh/release-name="$RELEASE_NAME" --overwrite
+            kubectl annotate "$KIND" "$NAME" -n "$NAMESPACE" meta.helm.sh/release-namespace="$NAMESPACE" --overwrite
+          else
+            echo "$KIND/$NAME not found, nothing to adopt."
+          fi
+        }
+        # Service fisso e Deployment con nome = release
+        adopt service     "$SERVICE_NAME"
+        adopt deployment  "$RELEASE_NAME"
+
     - name: Setup Helm
       uses: azure/setup-helm@v4
 
-    # 8) deploy con Helm (sostituisce sed+kubectl apply)
     - name: Deploy with Helm
       run: |
         set -euo pipefail
@@ -114,15 +118,12 @@ jobs:
           --set image.repository="${{ secrets.ACR_LOGIN_SERVER }}/moodtrack-api" \
           --set image.tag="${{ github.sha }}" \
           -f infra/helm/values-dev.yaml
-        # rollout del Deployment chiamato come la release
         kubectl rollout status deploy/"$RELEASE_NAME" -n "$NAMESPACE" --timeout=300s
 
-    # 9) smoke-test API + chatbot + mood async (INVARIATO)
     - name: Smoke tests
       run: |
         set -euo pipefail
 
-        # --- resolve LB (ip o hostname) ---
         LB_IP=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' || true)
         LB_DNS=$(kubectl get svc "$SERVICE_NAME" -n "$NAMESPACE" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' || true)
         LB=${LB_IP:-$LB_DNS}
@@ -160,7 +161,6 @@ jobs:
           || { echo "❌ POST /entries failed"; exit 1; }
         echo "↪︎ create response: $CREATE_JSON"
 
-        # Prova a leggere l'ID dal response, fallback alla lista
         ENTRY_ID=$(echo "$CREATE_JSON" | jq -r '.id // empty')
         if [ -z "$ENTRY_ID" ] || [ "$ENTRY_ID" = "null" ]; then
           echo "ℹ️ POST /entries non ha restituito id; provo dalla lista"
