@@ -50,8 +50,16 @@ def list_entries(
 
 
 @router.get("/entries/{entry_id}", response_model=EntryOut)
-def get_entry(entry_id: int, db: Session = Depends(get_db), user=Security(get_current_user, scopes=["entries:read"])):
-    e = db.query(Entry).filter(Entry.id == entry_id).first()
+def get_entry(
+    entry_id: int,
+    db: Session = Depends(get_db),
+    user=Security(get_current_user, scopes=["entries:read"])
+):
+    e = db.query(Entry).filter(
+        Entry.id == entry_id,
+        Entry.user_id == user["username"]  # o user["id"], dipende dal tuo token
+    ).first()
+
     if not e:
         raise HTTPException(status_code=404, detail="not found")
     return e
