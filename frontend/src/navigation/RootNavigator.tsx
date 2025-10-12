@@ -1,51 +1,85 @@
 import React from 'react';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { useColorScheme, Button } from 'react-native';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
+
+import { useAuth } from '../auth/AuthContext';
+import { useTheme } from '../theme';
+
 import LoginScreen from '../screens/LoginScreen';
 import EntriesScreen from '../screens/EntriesScreen';
-import NewEntryScreen from '../screens/NewEntryScreen';
+import CalendarScreen from '../screens/CalendarScreen';
 import ChartScreen from '../screens/ChartScreen';
-import ChatScreen from '../screens/ChatScreen';
-import { useAuth } from '../auth/AuthContext';
+import ProfileScreen from '../screens/ProfileScreen';
+import EntryDetailScreen from '../screens/EntryDetailScreen';
+import NewEntryScreen from '../screens/NewEntryScreen';
 
+const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
 
+function MainTabs() {
+  const { theme } = useTheme();
+  return (
+    <Tab.Navigator
+      initialRouteName="Entries"
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.subtext,
+        tabBarStyle: {
+          backgroundColor: theme.bg,
+          borderTopColor: theme.line,
+        },
+        tabBarIcon: ({ focused, color, size }) => {
+          const map: Record<string, keyof typeof Ionicons.glyphMap> = {
+            Entries: focused ? 'list' : 'list-outline',
+            Calendar: focused ? 'calendar' : 'calendar-outline',
+            Chart: focused ? 'stats-chart' : 'stats-chart-outline',
+            Profile: focused ? 'person' : 'person-outline',
+          };
+          return <Ionicons name={map[route.name]} size={size} color={color} />;
+        },
+      })}
+    >
+      <Tab.Screen name="Entries" component={EntriesScreen} />
+      <Tab.Screen name="Calendar" component={CalendarScreen} />
+      <Tab.Screen name="Chart" component={ChartScreen} options={{ title: 'Stats' }} />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
+    </Tab.Navigator>
+  );
+}
+
 function AuthedStack() {
-  const { logout } = useAuth();
+  const { theme } = useTheme();
+  return (
+    <Stack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: theme.bg },
+        headerTintColor: theme.primary,       // 👈 colore freccia back + testo
+        headerTitleStyle: { color: theme.text }, // 👈 colore titolo
+      }}
+    >
+      <Stack.Screen name="Entries" component={MainTabs} options={{ headerShown: false }} />
+      <Stack.Screen name="EntryDetail" component={EntryDetailScreen} options={{ title: 'Entry' }} />
+      <Stack.Screen name="NewEntry" component={NewEntryScreen} options={{ title: 'New Entry' }} />
+    </Stack.Navigator>
+  );
+}
+
+function UnauthedStack() {
   return (
     <Stack.Navigator>
-      <Stack.Screen
-        name="Entries"
-        component={EntriesScreen}
-        options={({ navigation }) => ({
-          title: 'MoodTrack',
-          headerLargeTitle: true, // iOS style
-          headerRight: () => (
-            <>
-              <Button title="Add" onPress={() => navigation.navigate('NewEntry')} />
-              <Button title="Chart" onPress={() => navigation.navigate('Chart')} />
-              <Button title="Chat" onPress={() => navigation.navigate('Chat')} />
-              <Button title="Logout" onPress={logout} />
-            </>
-          ),
-        })}
-      />
-      <Stack.Screen name="NewEntry" component={NewEntryScreen} options={{ title: 'Nuova Voce' }} />
-      <Stack.Screen name="Chart" component={ChartScreen} options={{ title: 'Andamento' }} />
-      <Stack.Screen name="Chat" component={ChatScreen} options={{ title: 'Confidente' }} />
+      <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
 
 export default function RootNavigator() {
-  const scheme = useColorScheme();
   const { isAuthed } = useAuth();
   return (
-    <NavigationContainer theme={scheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
-        {isAuthed ? <Stack.Screen name="App" component={AuthedStack} /> : <Stack.Screen name="Login" component={LoginScreen} />}
-      </Stack.Navigator>
+    <NavigationContainer theme={DarkTheme}>
+      {isAuthed ? <AuthedStack /> : <UnauthedStack />}
     </NavigationContainer>
   );
 }

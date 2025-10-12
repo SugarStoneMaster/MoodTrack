@@ -7,6 +7,7 @@ import {
   saveRefreshToken,
   clearAllTokens,
 } from '../lib/keychain';
+import type { ChatbotResponse, UserProfile } from './types';
 
 const TIMEOUT_MS = 15000;
 
@@ -37,7 +38,6 @@ async function parseJsonSafe<T>(res: Response): Promise<T> {
   try {
     return JSON.parse(text) as T;
   } catch {
-    // se non è JSON, torna testo “grezzo” in un campo
     return { raw: text } as unknown as T;
   }
 }
@@ -53,26 +53,18 @@ async function request<T>(
   const { auth = true, retry = true } = opts ?? {};
   const url = joinUrl(API_BASE, path);
 
-  // headers base
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
 
-  // auth header
   if (auth) {
     const t = memoryAccess ?? (await getAccessToken());
     if (t) headers.Authorization = `Bearer ${t}`;
   }
 
-  // body
-  const init: RequestInit = {
-    method,
-    headers,
-  };
+  const init: RequestInit = { method, headers };
   if (body !== undefined) init.body = typeof body === 'string' ? body : JSON.stringify(body);
 
-  // 1° tentativo
   let res = await withTimeout(url, init, TIMEOUT_MS);
 
-  // refresh se 401 e possiamo ritentare
   if (auth && res.status === 401 && retry) {
     try {
       const rt = await getRefreshToken();
@@ -94,10 +86,7 @@ async function request<T>(
       if (data.access_token) {
         await saveAccessToken(data.access_token);
         setMemoryAccessToken(data.access_token);
-        // opzionale: salva anche il nuovo refresh, se fornito
         if (data.refresh_token) await saveRefreshToken(data.refresh_token);
-
-        // ritenta la chiamata originale con nuovo bearer
         (init.headers as Record<string, string>).Authorization = `Bearer ${data.access_token}`;
         res = await withTimeout(url, init, TIMEOUT_MS);
       } else {
@@ -105,41 +94,94 @@ async function request<T>(
       }
     } catch {
       await clearAllTokens();
-      // ricadi nell’errore del response originale/ritentato
     }
   }
 
   if (!res.ok) {
     const errBody = await parseJsonSafe<any>(res);
-    const msg = typeof errBody?.detail === 'string'
-      ? errBody.detail
-      : `HTTP ${res.status}`;
+    const msg =
+      (typeof errBody?.detail === 'string' && errBody.detail) ||
+      (typeof errBody?.error?.message === 'string' && errBody.error.message) ||
+      `HTTP ${res.status}`;
     throw new Error(msg);
   }
 
   return parseJsonSafe<T>(res);
 }
 
-// ---- Helper “comodi” (come prima) ----
-export async function login(email: string, password: string) {
-  // se vuoi salvare subito i token, fallo qui dopo la risposta
-  const data = await request<{ access_token: string; refresh_token?: string }>(
+// ------------ AUTH ------------
+export async function login(username: string, password: string) {
+  return request<{ access_token: string; refresh_token?: string }>(
     'POST',
     '/auth/login',
-    { email, password },
-    { auth: false } // di solito login non richiede Bearer
+    { username, password },
+    { auth: false }
   );
-  return data;
 }
 
-export async function getEntries() {
-  return request<any>('GET', '/entries');
+// ------------ ENTRIES ------------
+export async function getEntries(params?: { skip?: number; limit?: number }) {
+  const skip = params?.skip ?? 0;
+  const limit = params?.limit ?? 20;
+  const q = `/entries?skip=${encodeURIComponent(skip)}&limit=${encodeURIComponent(limit)}`;
+  return request<any>('GET', q);
 }
 
-export async function createEntry(content: string, mood: number | null) {
-  return request<any>('POST', '/entries', { content, mood });
+export async function createEntry(dto: { title?: string; content: string }) {
+  return request<any>('POST', '/entries', dto);
 }
 
-export async function chat(message: string, history?: Array<{ role: 'user' | 'assistant'; content: string }>) {
-  return request<any>('POST', '/chat', { message, history });
+export async function getEntryById(id: number) {
+  return request<any>('GET', `/entries/${id}`);
+}
+
+// ------------ PROFILE ------------
+export async function getProfile() {
+  return request<UserProfile>('GET', '/users/me');
+}
+
+export async function updateProfileSettings(patch: {
+  reminder_hour?: number;
+  tz_iana?: string;
+  email_opt_in?: boolean;
+}) {
+  return request<UserProfile>('PATCH', '/me/settings', patch);
+}
+
+// ------------ CHATBOT ------------
+export async function chat(message: string, threadId: string) {
+  return request<ChatbotResponse>('POST', '/chatbot/send_message', {
+    message,
+    thread_id: threadId,
+  });
+}
+
+export async function promptOfDay() {
+  return request<{text: string}>('GET', '/chatbot/prompt_of_day');
+}
+
+// Ottiene il thread_id se esiste
+export async function getThreadId() {
+  return request<{ thread_id?: string | null }>('GET', '/chatbot/thread_id');
+}
+
+// Crea (o assicura) un thread_id lato server e lo restituisce
+export async function createThreadId() {
+  // endpoint POST che crea/salva il thread sul profilo e ritorna { thread_id }
+  return request<{ thread_id: string }>('POST', '/chatbot/thread_id');
+}
+
+// Utility: garantisce un thread_id valido iniziando con "thread_"
+export async function ensureThreadId(): Promise<string> {
+  try {
+    const r = await getThreadId();
+    if (r?.thread_id && r.thread_id.startsWith('thread_')) return r.thread_id;
+  } catch {
+    // se il GET fallisce, tentiamo comunque la creazione
+  }
+  const c = await createThreadId();
+  if (!c?.thread_id || !c.thread_id.startsWith('thread_')) {
+    throw new Error('Thread non valido dal server');
+  }
+  return c.thread_id;
 }

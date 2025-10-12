@@ -1,24 +1,95 @@
+// src/components/EntryCard.tsx
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
-import { Entry } from '../api/types';
-import { theme, fonts, spacing } from '../theme';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator } from 'react-native';
+import type { Entry } from '../api/types';
+import { fonts, spacing, useTheme } from '../theme';
 
-export default function EntryCard({ item }: { item: Entry }) {
-  const date = new Date(item.created_at).toLocaleString();
+function moodToEmoji(mood?: number | null): string {
+  switch (mood) {
+    case 1: return '😢';
+    case 2: return '😟';
+    case 3: return '😐';
+    case 4: return '🙂';
+    case 5: return '😄';
+    default: return '–';
+  }
+}
+
+export default function EntryCard({ item, onPress }: { item: Entry; onPress?: () => void }) {
+  const { theme } = useTheme();
+
+  const d = new Date(item.created_at);
+  const date = d.toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' });
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const isPending = item.mood == null;
+
   return (
-    <View style={styles.card}>
-      <View style={styles.row}>
-        <Text style={styles.date}>{date}</Text>
-        <Text style={styles.mood}>{item.mood ?? '–'}</Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}>
+      <View style={[
+        styles.card,
+        { backgroundColor: theme.colors.card, borderColor: theme.colors.line }
+      ]}>
+        {/* Titolo */}
+        <Text style={[styles.title, { color: theme.colors.text }]} numberOfLines={1} ellipsizeMode="tail">
+          {item.title || 'Voce'}
+        </Text>
+
+        {/* Contenuto */}
+        <Text style={[styles.content, { color: theme.colors.text }]} numberOfLines={3} ellipsizeMode="tail">
+          {item.content}
+        </Text>
+
+        {/* Footer */}
+        <View style={styles.row}>
+          <View style={[
+            styles.dateBox,
+            { backgroundColor: theme.colors.bg, borderColor: theme.colors.line }
+          ]}>
+            <Text style={[styles.date, { color: theme.colors.text }]}>{date}</Text>
+            <Text style={[styles.time, { color: theme.colors.subtext }]}>{time}</Text>
+          </View>
+          <View style={styles.moodBox}>
+            {isPending ? (
+              <ActivityIndicator size="large" color={theme.colors.text} style={styles.spinner} />
+            ) : (
+              <Text style={styles.mood}>{moodToEmoji(item.mood)}</Text>
+            )}
+          </View>
+        </View>
       </View>
-      <Text style={styles.content}>{item.content}</Text>
-    </View>
+    </Pressable>
   );
 }
+
 const styles = StyleSheet.create({
-  card: { backgroundColor: theme.card, borderRadius: 14, padding: spacing(2), marginVertical: spacing(1), borderWidth: 1, borderColor: theme.line },
-  row: { flexDirection: 'row', justifyContent: 'space-between' },
-  date: { ...fonts.small, color: theme.subtext },
-  mood: { ...fonts.h2, color: theme.text },
-  content: { ...fonts.body, color: theme.text, marginTop: spacing(1) },
+  card: {
+    borderRadius: 14,
+    padding: spacing(2),
+    marginVertical: spacing(1),
+    borderWidth: 1,
+    height: 140,
+    justifyContent: 'space-between',
+  },
+  title: { ...fonts.h2, marginBottom: spacing(0.5) },
+  content: { ...fonts.body, flexShrink: 1 },
+
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing(0.5),
+  },
+
+  dateBox: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  date: { ...fonts.body, fontWeight: '600' },
+  time: { ...fonts.small },
+
+  moodBox: { width: 40, height: 40, alignItems: 'center', justifyContent: 'center' },
+  mood: { fontSize: 30, lineHeight: 34 },
+  spinner: { transform: [{ scale: 1.1 }] },
 });
