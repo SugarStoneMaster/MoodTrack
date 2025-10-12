@@ -1,6 +1,23 @@
-# MoodTrack
+<p align="center">
+     <img width="150" src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/icon.png" alt="MoodTrack logo">
+</p>
 
-### A cloud-native emotional journaling app with AI-powered insights and companion chat.
+<p align="center">
+     <b>MoodTrack</b><br>
+  A cloud-native emotional journaling app with AI-powered insights and companion chat. 💬📝
+</p>
+
+<p align="center">
+<a href="#"><img src="https://img.shields.io/github/contributors/SugarStoneMaster/MoodTrack?style=for-the-badge" alt="Contributors"/></a>
+<img src="https://img.shields.io/github/last-commit/SugarStoneMaster/MoodTrack?style=for-the-badge" alt="last commit">
+</p>
+<p align="center">
+<a href="#"><img src="https://img.shields.io/badge/PRs-welcome-brightgreen?style=for-the-badge" alt="PRs Welcome"/></a>
+<a href="#"><img src="https://img.shields.io/badge/languages-Python, TypeScript-blue?style=for-the-badge" alt="Languages"/></a>
+</p>
+
+
+# MoodTrack
 
 
 
