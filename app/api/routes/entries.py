@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, status, Security, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.api.queueing import enqueue_entry
-from app.core.deps import get_current_user, require_scope
+from app.api.services.queueing import enqueue_entry
+from app.core.deps import get_current_user
 from app.db import get_db
 from app.db.models import Entry
 from app.schemas.entry import EntryCreate, EntryOut, PaginatedEntries

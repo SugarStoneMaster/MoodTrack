@@ -6,28 +6,40 @@
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/2.PNG" width="280" alt="Screenshot 1" />
-  <video src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/demo.mp4" width="420" controls></video>
+  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/3.PNG" width="280" alt="Screenshot 2" />
   <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/3.PNG" width="280" alt="Screenshot 2" />
 </p>
 
 MoodTrack is a personal emotional journal application that helps users track their daily thoughts and feelings, monitor mood trends over time, and engage with an AI companion for reflective prompts and emotional support.
 
-**Why MoodTrack?** Research shows that journaling improves mental health in 68% of cases (2022 study), while AI chatbot interactions have been proven to reduce depression symptoms (2024 meta-analysis).
+**Why MoodTrack?** Research shows that journaling improves mental health in 68% of cases (2022 study), while AI chatbot interactions have been proven to reduce depression symptoms (2024 meta-analysis). [^1] [^2]
+
+[^1]: Journaling boosts mental health: https://pmc.ncbi.nlm.nih.gov/articles/PMC8935176/  
+[^2]: AI chatbots reduce depression symptoms: https://pubmed.ncbi.nlm.nih.gov/38631422/
 
 ### Author(s)
 [@SugarStoneMaster](https://github.com/SugarStoneMaster)
 
 ---
 
+## Table of Contents
+- [Architecture](#architecture)
+- [Scalability & Resilience](#scalability--resilience)
+- [Tech Stack](#tech-stack)
+- [Azure Environment Setup](#azure-environment-setup)
+- [Installation and Usage](#installation-and-usage)
+  - [Deployment](#deployment)
+- [Future Work](#future-work)
+- [Contributions](#contributions)
+- [Disclaimer](#disclaimer)
+
+---
+
 ## Architecture
 
-<p align='center'> 
-    <!-- Architecture diagram will go here -->
-    <i>Architecture diagram coming soon</i>
-</p>
 
 <p align="center">
-  <img src="./architecture.png" alt="Architecture diagram" />
+  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/architecture.jpg" alt="Screenshot 2" />
 </p>
 
 The architecture is divided into four zones: **Client**, **Development**, **Azure**, and **External Services**.
@@ -135,7 +147,6 @@ These tests measure real-world scalability and prevent bottlenecks before produc
 
 > **⚠️ IN PROGRESS**  
 
-
 ### Deployment
 The application is deployed automatically via GitHub Actions CI/CD pipeline when pushing to the `main` branch.
 
@@ -164,5 +175,7 @@ Contributions are very much appreciated. Please describe your changes clearly in
 If you encounter any bugs or issues unrelated to your local environment, please open a new issue with reproducible steps.
 
 ---
+
+## Disclaimer
 
 > **Disclaimer**: MoodTrack is not a substitute for professional mental health care.

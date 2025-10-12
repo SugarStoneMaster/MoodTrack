@@ -1,22 +1,18 @@
 # app/api/routes/chatbot.py
 import asyncio
 import json
-import os
 import threading
-import time
 
-import openai
 from fastapi import APIRouter, Depends, HTTPException, status, Query, Security
 from fastapi.responses import StreamingResponse
 
 from sqlalchemy.orm import Session
-from uvicorn import logging
 
 from app.schemas.chatbot import ChatbotMessageIn, ChatbotResponse
-from app.core.deps import get_current_user, require_scope
+from app.core.deps import get_current_user
 from app.db import get_db
 from app.db.models import User
-from app.api.assistant import (
+from app.api.services.assistant import (
     assistant_id,
     create_thread,
     add_user_message,
@@ -152,3 +148,15 @@ def get_prompt():
         return {"enabled": False}
     text = get_value("ui:prompt_of_day_text", "Di cosa sei grato oggi?")
     return {"enabled": True, "text": text}
+
+
+
+@router.get("/thread_id", response_model=dict)
+def get_thread_id(
+    me=Security(get_current_user, scopes=["entries:read"]),
+    db: Session = Depends(get_db),
+):
+    user = db.query(User).filter(User.username == me["username"]).first()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    return {"thread_id": user.thread_id}
