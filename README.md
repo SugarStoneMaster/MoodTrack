@@ -5,9 +5,9 @@
 
 
 <p align="center">
-  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/2.PNG" width="280" alt="Screenshot 1" />
-  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/3.PNG" width="280" alt="Screenshot 2" />
-  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/3.PNG" width="280" alt="Screenshot 2" />
+  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/entries_list.png" width="240" alt="Screenshot 1" />
+  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/new_entry.png" width="240" alt="Screenshot 2" />
+  <img src="https://raw.githubusercontent.com/SugarStoneMaster/MoodTrack/main/assets/coach.png" width="240" alt="Screenshot 2" />
 </p>
 
 MoodTrack is a personal emotional journal application that helps users track their daily thoughts and feelings, monitor mood trends over time, and engage with an AI companion for reflective prompts and emotional support.
